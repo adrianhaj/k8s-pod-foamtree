@@ -109,6 +109,9 @@ func (s *Source) Snapshot(ctx context.Context, name string) ([]foam.Node, []foam
 		return nil, nil, err
 	}
 	if err := c.wait(ctx); err != nil {
+		if !c.nodes.HasSynced() || !c.pods.HasSynced() {
+			s.evict(name, c)
+		}
 		return nil, nil, fmt.Errorf("cluster %q: %w", name, err)
 	}
 	nodes := []foam.Node{}
@@ -125,6 +128,7 @@ func (s *Source) Snapshot(ctx context.Context, name string) ([]foam.Node, []foam
 type clusterCache struct {
 	nodes, pods cache.SharedIndexInformer
 	lastErr     atomic.Pointer[error]
+	cancel      context.CancelFunc
 }
 
 // wait returns once both caches hold the initial list, or early with the
@@ -147,8 +151,8 @@ func (c *clusterCache) wait(ctx context.Context) error {
 	}
 }
 
-// ponytail: caches live until exit (bounded by kubeconfig contexts); add idle
-// eviction if someone runs this against dozens of clusters.
+// ponytail: post-sync staleness (cluster recreated behind the same context
+// name after a successful sync) isn't handled; a restart picks it up.
 func (s *Source) cache(name string) (*clusterCache, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -159,27 +163,44 @@ func (s *Source) cache(name string) (*clusterCache, error) {
 	if err != nil {
 		return nil, err
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	c := &clusterCache{
 		nodes: coreinformers.NewNodeInformer(cs, 0, cache.Indexers{}),
 		pods: coreinformers.NewFilteredPodInformer(cs, metav1.NamespaceAll, 0, cache.Indexers{},
 			func(o *metav1.ListOptions) { o.FieldSelector = activePods }),
+		cancel: cancel,
 	}
 	remember := func(_ context.Context, _ *cache.Reflector, err error) { c.lastErr.Store(&err) }
 	for _, inf := range []cache.SharedIndexInformer{c.nodes, c.pods} {
 		if err := inf.SetWatchErrorHandlerWithContext(remember); err != nil {
+			cancel()
 			return nil, err
 		}
 	}
 	if err := c.nodes.SetTransform(slimNode); err != nil {
+		cancel()
 		return nil, err
 	}
 	if err := c.pods.SetTransform(slimPod); err != nil {
+		cancel()
 		return nil, err
 	}
-	go c.nodes.RunWithContext(context.Background())
-	go c.pods.RunWithContext(context.Background())
+	go c.nodes.RunWithContext(ctx)
+	go c.pods.RunWithContext(ctx)
 	s.caches[name] = c
 	return c, nil
+}
+
+// evict drops a cache that failed its first sync and stops its informers, so
+// the next Snapshot rebuilds from a fresh client instead of replaying the
+// same stuck error forever.
+func (s *Source) evict(name string, c *clusterCache) {
+	s.mu.Lock()
+	if s.caches[name] == c {
+		delete(s.caches, name)
+	}
+	s.mu.Unlock()
+	c.cancel()
 }
 
 // slimPod keeps only what the dashboard reads. Env, volumes and managedFields

@@ -13,6 +13,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
@@ -100,6 +101,53 @@ func TestSnapshotReportsListError(t *testing.T) {
 	_, _, err := testSource(t, cs).Snapshot(ctx, "kind-a")
 	if err == nil || !strings.Contains(err.Error(), "Unauthorized") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+// A failed first sync (bad kubeconfig) must not stick forever: fixing the
+// kubeconfig and retrying should rebuild the cache from a fresh client.
+func TestSnapshotRecoversAfterFailedFirstSync(t *testing.T) {
+	bad := fake.NewClientset()
+	bad.PrependReactor("list", "*", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("Unauthorized")
+	})
+	good := fake.NewClientset(
+		&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1"}},
+	)
+	s := testSource(t, bad)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if _, _, err := s.Snapshot(ctx, "kind-a"); err == nil {
+		t.Fatal("want error on first snapshot")
+	}
+	s.newClient = func(string) (kubernetes.Interface, error) { return good, nil }
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel2()
+	nodes, _, err := s.Snapshot(ctx2, "kind-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 1 {
+		t.Fatalf("got %d nodes, want 1", len(nodes))
+	}
+}
+
+// The fake clientset ignores field selectors, so this pins the request shape
+// itself: dropping activePods would pass every other test silently.
+func TestSnapshotFiltersPodsByFieldSelector(t *testing.T) {
+	cs := fake.NewClientset()
+	var got string
+	cs.PrependReactor("list", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		got = action.(k8stesting.ListAction).GetListRestrictions().Fields.String()
+		return false, nil, nil
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, _, err := testSource(t, cs).Snapshot(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got != fields.ParseSelectorOrDie(activePods).String() {
+		t.Fatalf("got field selector %q, want %q", got, activePods)
 	}
 }
 
