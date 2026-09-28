@@ -83,7 +83,9 @@ const FACES = { top: [96, 58], x: [88, 24], z: [88, 15] }; // CSS .cube-top / -e
 function webglAvailable() {
   try {
     const c = document.createElement("canvas");
-    return !!(c.getContext("webgl2") || c.getContext("webgl"));
+    const gl = c.getContext("webgl2") || c.getContext("webgl");
+    gl && gl.getExtension("WEBGL_lose_context")?.loseContext();
+    return !!gl;
   } catch {
     return false;
   }
@@ -307,10 +309,12 @@ function Scene3D({
       });
     };
     const onLeave = () => { setTip(null); props.current.onPodHover(null); };
-    const onDown = e => { down = { x: e.clientX, y: e.clientY }; };
-    // A drag orbits the camera; only a still click selects.
+    const onDown = e => { down = e.button === 0 ? { x: e.clientX, y: e.clientY } : null; };
+    // A drag orbits the camera; only a still primary-button click selects.
     const onUp = e => {
-      if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) return;
+      const was = down;
+      down = null;
+      if (e.button !== 0 || !was || Math.hypot(e.clientX - was.x, e.clientY - was.y) > 4) return;
       const hit = pick(e);
       if (hit && hit.pod) props.current.onPodSelect(workloadKey(hit.pod.name));
       else if (hit && hit.node) props.current.onFocus(hit.node);
@@ -331,6 +335,7 @@ function Scene3D({
       w.dispose && w.dispose();
       grid.dispose();
       hatch.dispose();
+      renderer.forceContextLoss();
       renderer.dispose();
       el.remove();
       world.current = null;
@@ -415,7 +420,15 @@ function Scene3D({
     w.step = t => {
       const f = ease((t - w.anim) / GROW_MS);
       w.place(f);
-      if (f >= 1) w.anim = null;
+      if (f >= 1) {
+        w.anim = null;
+        // Ghosts are appended after live pods; stop drawing and picking them.
+        const live = next.cubes.length;
+        for (const mesh of [top, x, z, shells]) {
+          mesh.count = live;
+          mesh.boundingSphere = mesh.boundingBox = null;
+        }
+      }
       return !!w.anim;
     };
     w.anim = animate ? performance.now() : null;
@@ -483,7 +496,7 @@ function Scene3D({
         set(w.meshes.plates, i, plateSurface(w.bg, h));
         set(w.meshes.rims, i, mix(w.bg, hsl(h, 100, 62), 0.5));
         // A plate the query ruled out drops its inlay, warning hatch included.
-        m.makeScale(dim ? 0 : PLATE, 1, dim ? 0 : PLATE).setPosition(p.x, 0.05, p.z);
+        m.makeScale(dim || sev ? 0 : PLATE, 1, dim || sev ? 0 : PLATE).setPosition(p.x, 0.05, p.z);
         w.meshes.grids.setMatrixAt(i, m);
         set(w.meshes.grids, i, [1, 1, 1]);
         m.makeScale(dim || !sev ? 0 : PLATE, 1, dim || !sev ? 0 : PLATE).setPosition(p.x, 0.1, p.z);
@@ -493,6 +506,8 @@ function Scene3D({
       });
       for (const mesh of Object.values(w.meshes)) if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       w.meshes.grids.instanceMatrix.needsUpdate = w.meshes.hatches.instanceMatrix.needsUpdate = true;
+      w.meshes.grids.boundingSphere = w.meshes.grids.boundingBox = null;
+      w.meshes.hatches.boundingSphere = w.meshes.hatches.boundingBox = null;
     };
     w.recolor();
     w.render();
