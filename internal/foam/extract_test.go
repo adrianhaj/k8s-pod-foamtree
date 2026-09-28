@@ -1,6 +1,7 @@
 package foam
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -178,5 +179,79 @@ func TestFromNodeConditions(t *testing.T) {
 	}
 	if silent := FromNode(node()); !silent.Conditions["Ready"] || silent.Conditions["MemoryPressure"] {
 		t.Fatalf("no conditions must read as ready: %+v", silent.Conditions)
+	}
+}
+
+func withLimits(c corev1.Container, cpu, mem string) corev1.Container {
+	c.Resources.Limits = corev1.ResourceList{}
+	if cpu != "" {
+		c.Resources.Limits[corev1.ResourceCPU] = resource.MustParse(cpu)
+	}
+	if mem != "" {
+		c.Resources.Limits[corev1.ResourceMemory] = resource.MustParse(mem)
+	}
+	return c
+}
+
+func TestFromPodLimits(t *testing.T) {
+	always := corev1.ContainerRestartPolicyAlways
+	sidecar := withLimits(ctr("proxy", "50m", "32Mi"), "100m", "")
+	sidecar.RestartPolicy = &always
+	oneShot := ctr("migrate", "1", "1Gi") // plain init containers never bound the running pod
+
+	cases := []struct {
+		name     string
+		pod      *corev1.Pod
+		cpu, mem string // "" = unbounded
+	}{
+		{"all set", pod([]corev1.Container{withLimits(ctr("a", "", ""), "500m", "256Mi"), withLimits(ctr("b", "", ""), "250m", "128Mi")}), "750", "402653.184"},
+		{"one container unbounded", pod([]corev1.Container{withLimits(ctr("a", "", ""), "500m", "256Mi"), ctr("b", "", "")}), "", ""},
+		{"memory only", pod([]corev1.Container{withLimits(ctr("a", "", ""), "", "256Mi")}), "", "268435.456"},
+		{"unbounded sidecar", pod([]corev1.Container{withLimits(ctr("a", "", ""), "500m", "256Mi")}, sidecar), "600", ""},
+		{"plain init ignored", pod([]corev1.Container{withLimits(ctr("a", "", ""), "500m", "256Mi")}, oneShot), "500", "268435.456"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := FromPod(tc.pod)
+			if got := fmtPtr(p.CPULimit); got != tc.cpu {
+				t.Errorf("cpu limit = %q, want %q", got, tc.cpu)
+			}
+			if got := fmtPtr(p.MemoryLimit); got != tc.mem {
+				t.Errorf("memory limit = %q, want %q", got, tc.mem)
+			}
+		})
+	}
+}
+
+func TestFromPodPodLevelLimitBoundsThePod(t *testing.T) {
+	p := pod([]corev1.Container{ctr("a", "100m", "")})
+	p.Spec.Resources = &corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}}
+	if got := fmtPtr(FromPod(p).CPULimit); got != "2000" {
+		t.Fatalf("cpu limit = %q", got)
+	}
+}
+
+func fmtPtr[T int64 | float64](v *T) string {
+	if v == nil {
+		return ""
+	}
+	return fmt.Sprint(*v)
+}
+
+func TestFromNodeTopology(t *testing.T) {
+	raw := node()
+	raw.Labels = map[string]string{
+		"topology.kubernetes.io/zone":      "eu-west-1a",
+		"topology.kubernetes.io/region":    "eu-west-1",
+		"node.kubernetes.io/instance-type": "m7g.xlarge",
+		"eks.amazonaws.com/nodegroup":      "general",
+	}
+	n := FromNode(raw)
+	if n.Zone != "eu-west-1a" || n.Region != "eu-west-1" || n.InstanceType != "m7g.xlarge" || n.Pool != "general" {
+		t.Fatalf("got %+v", n)
+	}
+	raw.Labels = map[string]string{"karpenter.sh/nodepool": "spot", "eks.amazonaws.com/nodegroup": "general"}
+	if n := FromNode(raw); n.Pool != "spot" || n.Zone != "" {
+		t.Fatalf("karpenter pool wins, missing zone stays empty: %+v", n)
 	}
 }

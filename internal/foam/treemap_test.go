@@ -151,3 +151,35 @@ func BenchmarkTreemap(b *testing.B) {
 		}
 	}
 }
+
+func TestTreemapPodLimitPerAxis(t *testing.T) {
+	cpuLimit, memLimit := int64(300), 400_000.0
+	capped := etcdPod()
+	capped.CPULimit = &cpuLimit
+	capped.MemoryLimit = &memLimit
+	open := etcdPod()
+	open.Name = "open"
+	cpuPods := children(render(t, []Node{minikube}, []Pod{capped, open}, CPU)[0])
+	memPods := children(render(t, []Node{minikube}, []Pod{capped, open}, Memory)[0])
+	if cpuPods[0]["limit"] != 300.0 || memPods[0]["limit"] != 400_000.0 {
+		t.Fatalf("limits: cpu=%v mem=%v", cpuPods[0]["limit"], memPods[0]["limit"])
+	}
+	if v, ok := cpuPods[1]["limit"]; !ok || v != nil {
+		t.Fatalf("an unbounded pod must send limit:null, got %v (present=%v)", v, ok)
+	}
+	if _, ok := cpuPods[2]["limit"]; ok {
+		t.Fatal("the empty leaf must keep its shape")
+	}
+}
+
+func TestTreemapNodeTopology(t *testing.T) {
+	n := minikube
+	n.Zone, n.Region, n.InstanceType, n.Pool = "eu-west-1a", "eu-west-1", "m7g.xlarge", "general"
+	g := render(t, []Node{n, {Name: "bare"}}, nil, CPU)
+	if fmt.Sprintf("%v %v %v %v", g[1]["zone"], g[1]["region"], g[1]["instanceType"], g[1]["pool"]) != "eu-west-1a eu-west-1 m7g.xlarge general" {
+		t.Fatalf("got %v", g[1])
+	}
+	if g[0]["zone"] != "" || g[0]["pool"] != "" {
+		t.Fatalf("unlabelled node must send empty strings: %v", g[0])
+	}
+}

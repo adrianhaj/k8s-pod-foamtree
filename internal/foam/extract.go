@@ -26,6 +26,9 @@ type Pod struct {
 	InitContainers []Container
 	Labels         map[string]string
 	QOS            string
+	// nil when any running container is unbounded on that axis.
+	CPULimit    *int64
+	MemoryLimit *float64
 }
 
 type Taint struct {
@@ -41,6 +44,8 @@ type Node struct {
 	Unschedulable bool
 	Taints        []Taint
 	Conditions    map[string]bool
+	// "" when the node does not carry the label.
+	Zone, Region, InstanceType, Pool string
 }
 
 // Kubernetes adds this taint itself on cordon; spec.unschedulable already
@@ -48,6 +53,24 @@ type Node struct {
 const cordonTaint = "node.kubernetes.io/unschedulable"
 
 var pressureConditions = []string{"MemoryPressure", "DiskPressure", "PIDPressure"}
+
+const (
+	zoneLabel         = "topology.kubernetes.io/zone"
+	regionLabel       = "topology.kubernetes.io/region"
+	instanceTypeLabel = "node.kubernetes.io/instance-type"
+)
+
+// Node pool labels by provider, most specific first: Karpenter also runs on
+// EKS nodes that carry a nodegroup label.
+var PoolLabels = []string{
+	"karpenter.sh/nodepool",
+	"eks.amazonaws.com/nodegroup",
+	"cloud.google.com/gke-nodepool",
+	"kubernetes.azure.com/agentpool",
+}
+
+// TopologyLabels are the node labels the dashboard reads.
+var TopologyLabels = append([]string{zoneLabel, regionLabel, instanceTypeLabel}, PoolLabels...)
 
 func kB(q resource.Quantity) float64 { return float64(q.Value()) / 1000 }
 
@@ -62,6 +85,29 @@ func container(c corev1.Container) Container {
 		out.MemoryLimit = &v
 	}
 	return out
+}
+
+// bounded reports whether a pod has a ceiling on r: the pod sets one itself,
+// or every container that keeps running (regular ones and sidecars) does.
+// Plain init containers finish first, so they never bound the running pod.
+func bounded(p *corev1.Pod, r corev1.ResourceName) bool {
+	if p.Spec.Resources != nil {
+		if _, ok := p.Spec.Resources.Limits[r]; ok {
+			return true
+		}
+	}
+	for _, c := range p.Spec.Containers {
+		if _, ok := c.Resources.Limits[r]; !ok {
+			return false
+		}
+	}
+	for _, c := range p.Spec.InitContainers {
+		sidecar := c.RestartPolicy != nil && *c.RestartPolicy == corev1.ContainerRestartPolicyAlways
+		if _, ok := c.Resources.Limits[r]; sidecar && !ok {
+			return false
+		}
+	}
+	return len(p.Spec.Containers) > 0
 }
 
 func containers(cs []corev1.Container) []Container {
@@ -80,7 +126,7 @@ func FromPod(p *corev1.Pod) Pod {
 	if labels == nil {
 		labels = map[string]string{}
 	}
-	return Pod{
+	out := Pod{
 		Name:           p.Name,
 		NodeName:       p.Spec.NodeName,
 		Namespace:      p.Namespace,
@@ -91,6 +137,16 @@ func FromPod(p *corev1.Pod) Pod {
 		Labels:         labels,
 		QOS:            string(p.Status.QOSClass),
 	}
+	lim := resourcehelper.PodLimits(p, resourcehelper.PodResourcesOptions{})
+	if bounded(p, corev1.ResourceCPU) {
+		v := lim.Cpu().MilliValue()
+		out.CPULimit = &v
+	}
+	if bounded(p, corev1.ResourceMemory) {
+		v := kB(*lim.Memory())
+		out.MemoryLimit = &v
+	}
+	return out
 }
 
 func FromNode(n *corev1.Node) Node {
@@ -112,6 +168,13 @@ func FromNode(n *corev1.Node) Node {
 	// condition at all means nothing was reported, so don't invent an outage.
 	ready, ok := status[corev1.NodeReady]
 	conditions["Ready"] = !ok || ready == corev1.ConditionTrue
+	pool := ""
+	for _, l := range PoolLabels {
+		if v := n.Labels[l]; v != "" {
+			pool = v
+			break
+		}
+	}
 	return Node{
 		Name:          n.Name,
 		CPU:           n.Status.Capacity.Cpu().MilliValue(),
@@ -119,5 +182,9 @@ func FromNode(n *corev1.Node) Node {
 		Unschedulable: n.Spec.Unschedulable,
 		Taints:        taints,
 		Conditions:    conditions,
+		Zone:          n.Labels[zoneLabel],
+		Region:        n.Labels[regionLabel],
+		InstanceType:  n.Labels[instanceTypeLabel],
+		Pool:          pool,
 	}
 }
