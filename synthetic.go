@@ -55,23 +55,37 @@ func (s *syntheticSource) Snapshot(context.Context, string) ([]foam.Node, []foam
 		for j := range s.podsPerNode {
 			k := i*s.podsPerNode + j
 			cpu, mem := int64(25+(k*37)%400), float64(50_000+(k*7919)%1_500_000)
+			qos := "Burstable"
+			switch {
+			case k%13 == 0:
+				cpu, mem, qos = 0, 0, "BestEffort"
+			case k%5 == 0:
+				qos = "Guaranteed"
+			}
 			c := foam.Container{Name: "app", CPU: cpu, Memory: mem}
 			p := foam.Pod{
 				// The last segment changes for pod k once every 50 generations.
 				Name:      fmt.Sprintf("svc%02d-%x-%x", k%40, k, (k+gen)/50),
 				Namespace: fmt.Sprintf("team-%d", k%9), NodeName: n.Name, CPU: cpu, Memory: mem,
-				Labels: map[string]string{"app": fmt.Sprintf("svc%02d", k%40)}, QOS: "Burstable",
+				Labels: map[string]string{"app": fmt.Sprintf("svc%02d", k%40)}, QOS: qos,
 			}
-			if k%11 != 0 {
-				lim := mem * 1.5
-				c.MemoryLimit, p.MemoryLimit = &lim, &lim
-			}
-			if k%3 == 0 {
-				lim := cpu * 2
-				p.CPULimit = &lim
-			}
-			if k%17 == 0 {
-				p.InitContainers = []foam.Container{{Name: "init", CPU: 100, Memory: 10_000}}
+			switch qos {
+			case "Guaranteed":
+				cpuLim, memLim := cpu, mem
+				c.MemoryLimit, p.MemoryLimit, p.CPULimit = &memLim, &memLim, &cpuLim
+			case "Burstable":
+				if k%11 != 0 {
+					lim := mem * 1.5
+					c.MemoryLimit, p.MemoryLimit = &lim, &lim
+				}
+				if k%3 == 0 {
+					lim := cpu * 2
+					p.CPULimit = &lim
+				}
+				// Only here: an init container without limits makes any pod Burstable.
+				if k%17 == 0 {
+					p.InitContainers = []foam.Container{{Name: "init", CPU: 100, Memory: 10_000}}
+				}
 			}
 			p.Containers = []foam.Container{c}
 			pods = append(pods, p)

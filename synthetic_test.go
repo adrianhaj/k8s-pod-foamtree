@@ -76,3 +76,27 @@ func TestSyntheticFlag(t *testing.T) {
 		t.Fatal("bad --synthetic accepted")
 	}
 }
+
+// Every QoS class shows up, and each pod's requests and limits agree with its
+// class, so Color by → QoS and the eviction panel have real data to show.
+func TestSyntheticQoS(t *testing.T) {
+	s, _ := parseSynthetic("30x20")
+	_, pods, _ := s.Snapshot(context.Background(), "")
+	count := map[string]int{}
+	for _, p := range pods {
+		count[p.QOS]++
+		switch p.QOS {
+		case "BestEffort":
+			if p.CPU != 0 || p.Memory != 0 || p.CPULimit != nil || p.MemoryLimit != nil || len(p.InitContainers) > 0 {
+				t.Fatalf("BestEffort pod with requests or limits: %+v", p)
+			}
+		case "Guaranteed":
+			if p.CPULimit == nil || *p.CPULimit != p.CPU || p.MemoryLimit == nil || *p.MemoryLimit != p.Memory || len(p.InitContainers) > 0 {
+				t.Fatalf("Guaranteed pod with limits != requests: %+v", p)
+			}
+		}
+	}
+	if len(count) != 3 || count["BestEffort"] == 0 || count["Guaranteed"] == 0 || count["Burstable"] == 0 {
+		t.Fatalf("QoS classes: %v", count)
+	}
+}
