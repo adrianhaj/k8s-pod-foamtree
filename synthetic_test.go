@@ -76,3 +76,34 @@ func TestSyntheticFlag(t *testing.T) {
 		t.Fatal("bad --synthetic accepted")
 	}
 }
+
+func TestSyntheticExtendedResources(t *testing.T) {
+	s, _ := parseSynthetic("30x20")
+	nodes, pods, _ := s.Snapshot(context.Background(), "")
+	used := map[string]map[string]int64{}
+	for _, p := range pods {
+		if used[p.NodeName] == nil {
+			used[p.NodeName] = map[string]int64{}
+		}
+		for k, v := range p.Extended {
+			used[p.NodeName][k] += v
+		}
+	}
+	offered := map[string]int{}
+	for _, n := range nodes {
+		for k, capacity := range n.Extended {
+			offered[k]++
+			if used[n.Name][k] > capacity {
+				t.Errorf("%s: %s requests %d > capacity %d", n.Name, k, used[n.Name][k], capacity)
+			}
+		}
+		for k := range used[n.Name] {
+			if _, ok := n.Extended[k]; !ok {
+				t.Errorf("%s: pods request %s the node does not offer", n.Name, k)
+			}
+		}
+	}
+	if offered["ephemeral-storage"] != 30 || offered["nvidia.com/gpu"] == 0 || offered["hugepages-2Mi"] == 0 {
+		t.Fatalf("not varied enough: %v", offered)
+	}
+}

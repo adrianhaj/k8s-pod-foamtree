@@ -44,12 +44,21 @@ func (s *syntheticSource) Snapshot(context.Context, string) ([]foam.Node, []foam
 			Conditions: map[string]bool{"Ready": true, "MemoryPressure": i%31 == 5},
 			Zone:       "synthetic-1" + string(rune('a'+i%3)), Region: "synthetic-1",
 			InstanceType: "m.4xlarge", Pool: pools[i%len(pools)], Unschedulable: i%23 == 7,
+			Extended: map[string]int64{"ephemeral-storage": 100_000_000_000},
+		}
+		if i%8 == 1 {
+			n.Pool = "gpu"
 		}
 		switch n.Pool {
 		case "memory":
 			n.Memory, n.InstanceType = 128_000_000, "r.4xlarge"
+			n.Extended["hugepages-2Mi"] = 4 << 30
 		case "spot":
 			n.Taints = []foam.Taint{{Key: "spot", Value: "true", Effect: "NoSchedule"}}
+		case "gpu":
+			n.InstanceType = "g.4xlarge"
+			n.Taints = []foam.Taint{{Key: "nvidia.com/gpu", Value: "present", Effect: "NoSchedule"}}
+			n.Extended["nvidia.com/gpu"] = 8
 		}
 		nodes = append(nodes, n)
 		for j := range s.podsPerNode {
@@ -72,6 +81,20 @@ func (s *syntheticSource) Snapshot(context.Context, string) ([]foam.Node, []foam
 			}
 			if k%17 == 0 {
 				p.InitContainers = []foam.Container{{Name: "init", CPU: 100, Memory: 10_000}}
+			}
+			ext := map[string]int64{}
+			if k%4 == 0 {
+				ext["ephemeral-storage"] = int64(1+k%5) << 30
+			}
+			// 6 of 8 GPUs and 2 of 4 GiB hugepages taken: free capacity to see.
+			if n.Pool == "gpu" && j%3 == 0 && j < 12 {
+				ext["nvidia.com/gpu"] = int64(1 + j%2)
+			}
+			if n.Pool == "memory" && j%5 == 0 && j < 20 {
+				ext["hugepages-2Mi"] = 512 << 20
+			}
+			if len(ext) > 0 {
+				c.Extended, p.Extended = ext, ext
 			}
 			p.Containers = []foam.Container{c}
 			pods = append(pods, p)

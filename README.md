@@ -242,7 +242,7 @@ Images: `make image` builds `ghcr.io/adrianhaj/k8sfoams:<git describe>` locally;
 | `--oidc-allowed-groups` | | comma-separated; at least one allow list is required |
 | `--oidc-groups-claim` | `groups` | ID-token claim with group names |
 | `--oidc-scopes` | `openid,email,profile` | add `groups` for Dex/Keycloak |
-| `--synthetic` | | serve a made-up cluster, e.g. `100x50` (nodes × pods per node), for UI work and scale tests |
+| `--synthetic` | | serve a made-up cluster, e.g. `100x50` (nodes × pods per node), for UI work and scale tests; includes GPU, ephemeral-storage and hugepages nodes |
 
 Secrets come from the environment only: `K8SFOAMS_OIDC_CLIENT_SECRET`, `K8SFOAMS_SESSION_KEY` (32 bytes, base64; unset means a random key, so sessions end on restart).
 
