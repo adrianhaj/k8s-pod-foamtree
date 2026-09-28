@@ -23,7 +23,7 @@ const syntheticChurn = 5 * time.Second
 
 func parseSynthetic(spec string) (*syntheticSource, error) {
 	var n, m int
-	if _, err := fmt.Sscanf(spec, "%dx%d", &n, &m); err != nil || n < 1 || m < 1 || n*m > 200_000 {
+	if _, err := fmt.Sscanf(spec, "%dx%d", &n, &m); err != nil || n < 1 || m < 1 || n > 200_000 || m > 200_000 || n*m > 200_000 {
 		return nil, fmt.Errorf("--synthetic wants NODESxPODS_PER_NODE, at most 200000 pods, got %q", spec)
 	}
 	return &syntheticSource{nodes: n, podsPerNode: m, now: time.Now}, nil

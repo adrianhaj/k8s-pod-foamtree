@@ -7,7 +7,7 @@ import (
 )
 
 func TestParseSynthetic(t *testing.T) {
-	for _, bad := range []string{"", "x", "abc", "0x5", "5x0", "-1x5", "1000x1000"} {
+	for _, bad := range []string{"", "x", "abc", "0x5", "5x0", "-1x5", "1000x1000", "4294967296x4294967296"} {
 		if _, err := parseSynthetic(bad); err == nil {
 			t.Errorf("%q accepted", bad)
 		}
