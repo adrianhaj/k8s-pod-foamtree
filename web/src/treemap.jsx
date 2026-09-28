@@ -114,11 +114,12 @@ function NodeCard({
   const innerW = Math.max(0, box.w - padding * 2);
   const innerH = Math.max(0, box.h - headerH - padding);
   // Memoised because a highlight change re-renders every card: `items` is a
-  // pure function of node + metric, so those two plus the box are the whole
-  // input to the layout, and hovering a pod must not redo this math per card.
+  // pure function of node, metric and match (the sliver), so those plus the
+  // box are the whole input to the layout, and hovering a pod must not redo
+  // this math per card.
   const laid = React.useMemo(
     () => (innerW > 0 && innerH > 0 ? squarify(items, padding, headerH, innerW, innerH) : []),
-    [node, metric, innerW, innerH, padding, headerH]
+    [node, metric, match, innerW, innerH, padding, headerH]
   );
 
   // Free capacity on a node that refuses pods is not really free, so the idle
