@@ -1308,3 +1308,6 @@ input { font: inherit; color: inherit; background: none; border: none; outline: 
 .scene-gl canvas { display: block; cursor: grab; }
 .scene-gl canvas:active { cursor: grabbing; }
 .scene-nogl { display: grid; place-items: center; padding: 24px; color: var(--text-dim, #9aa3b8); text-align: center; }
+
+/* History: the header chip while a recorded snapshot is on screen. */
+.hist-chip { color: var(--warn); border-color: var(--warn); }

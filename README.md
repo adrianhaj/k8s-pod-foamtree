@@ -81,6 +81,15 @@ Three details are worth knowing:
 - **CPU limits are not required.** Only a missing *memory* limit is flagged. A memory leak without a limit can take the whole node down; a CPU spike without a limit only gets throttled.
 - **Ratio asymmetry ignores small pods.** A sidecar asking for 5% of the CPU and almost no memory has an extreme ratio, but it leaves no meaningful capacity stranded.
 
+## History
+
+The browser records every refresh that changed something: in memory, per
+tab, up to 64 MB gzipped (about 300 refreshes of a 5 000-pod cluster); a
+reload starts over. Drag the **History** slider in the sidebar to go back,
+**Play** replays the recording at one snapshot a second, **Live** returns.
+The auto-refresh keeps recording while you look back. In 3D, pods that
+appear or disappear between snapshots grow in and shrink out.
+
 ## Filtering
 
 The query bar in the header is a **highlighter, not a filter of last resort**: matching pods glow, everything else dims. No pod, node or box ever leaves the layout, so the shape of the cluster stays comparable while you narrow down. Once the query is non-empty and valid, a live counter inside the input reads `N / M pods` (and turns red at `0`).

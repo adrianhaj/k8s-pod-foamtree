@@ -6,6 +6,7 @@ const { Scene3D } = window.k8sScene3D;
 const { workloadKey } = window.k8sWorkload;
 const { warnInfo, statusOf, WARNING_ORDER } = window.k8sNodeStatus;
 const { findingInfo, FINDING_ORDER, PodAuditBadge } = window.k8sPodAudit;
+const { pack, unpack, record } = window.k8sHistory;
 
 // Per-node hue assignment — deterministic from index, evenly spaced around wheel.
 function nodeHue(idx, scheme) {
@@ -173,6 +174,13 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [nodes, setNodes] = useState([]);
   const [error, setError] = useState(null);
+  // Every refresh is recorded; `at` is the snapshot on screen (null = live).
+  const [history, setHistory] = useState([]);
+  const [at, setAt] = useState(null);
+  const [playing, setPlaying] = useState(false);
+  const atRef = useRef(at);
+  atRef.current = at;
+  const lastRaw = useRef(new Map());
 
   // Load contexts from server
   useEffect(() => {
@@ -205,22 +213,32 @@ function App() {
     try {
       const currentCtx = contexts[contextIdx];
       const ctxParam = currentCtx ? `?context=${encodeURIComponent(currentCtx.context)}` : '';
+      const t = Date.now();
 
-      const [cpuRes, memRes] = await Promise.all([
+      const [cpuText, memText] = await Promise.all([
         fetch(`/resources/cpu${ctxParam}`).then(r => {
           if (!r.ok) throw new Error(`CPU resources endpoint returned status ${r.status}`);
-          return r.json();
+          return r.text();
         }),
         fetch(`/resources/memory${ctxParam}`).then(r => {
           if (!r.ok) throw new Error(`Memory resources endpoint returned status ${r.status}`);
-          return r.json();
+          return r.text();
         })
       ]);
 
-      const merged = mergeResources(cpuRes, memRes);
-      setNodes(merged);
+      const raw = `[${cpuText},${memText}]`;
+      const [cpuRes, memRes] = JSON.parse(raw);
+      // While scrubbing, refreshes keep recording but leave the screen alone.
+      if (atRef.current == null) setNodes(mergeResources(cpuRes, memRes));
       setError(null);
       setLastRefresh(Date.now());
+      // An unchanged cluster answers byte for byte the same: nothing to record.
+      const name = currentCtx ? currentCtx.context : "";
+      if (lastRaw.current.get(name) !== raw) {
+        lastRaw.current.set(name, raw);
+        const entry = await pack(t, name, raw);
+        setHistory(h => record(h, entry));
+      }
     } catch (err) {
       console.error("Error loading resources from live cluster:", err);
       setError(err.message || String(err));
@@ -241,12 +259,44 @@ function App() {
   useEffect(() => {
     setSelectedWorkload(null);
     setHoveredWorkload(null);
+    setAt(null);
+    setPlaying(false);
   }, [contextIdx]);
+
+  const ctxName = contexts[contextIdx] ? contexts[contextIdx].context : "";
+  const entries = useMemo(() => history.filter(e => e.context === ctxName), [history, ctxName]);
 
   // Keep a stable ref to the latest loadData so the auto-refresh interval
   // always calls the current closure without re-subscribing each render.
   const loadDataRef = useRef(loadData);
   loadDataRef.current = loadData;
+
+  // Scrubbing shows a recorded snapshot; going back to live fetches a fresh one.
+  useEffect(() => {
+    if (at == null) {
+      if (contexts.length > 0) loadDataRef.current();
+      return;
+    }
+    const entry = entries.find(e => e.t === at);
+    if (!entry) { setAt(null); return; }
+    let stale = false;
+    unpack(entry).then(([cpu, mem]) => { if (!stale) setNodes(mergeResources(cpu, mem)); });
+    return () => { stale = true; };
+  }, [at]);
+
+  // Playback steps one snapshot a second and stops at live. From live it
+  // starts at the oldest snapshot.
+  useEffect(() => {
+    if (!playing) return;
+    const id = setTimeout(() => {
+      const next = entries[entries.findIndex(e => e.t === at) + 1];
+      if (!next || next === entries[entries.length - 1]) {
+        setAt(null);
+        setPlaying(false);
+      } else setAt(next.t);
+    }, 1000);
+    return () => clearTimeout(id);
+  }, [playing, at, entries]);
 
   const parsedQuery = useMemo(() => window.k8sQuery.parseQuery(query), [query]);
 
@@ -377,6 +427,8 @@ function App() {
         health={health}
         audit={audit}
         query={query} setQuery={setQuery}
+        entries={entries} at={at} setAt={setAt}
+        playing={playing} setPlaying={setPlaying}
       />
 
       <main className="main">
@@ -400,6 +452,7 @@ function App() {
           refreshing={refreshing}
           workload={workloadStats}
           onClearWorkload={() => setSelectedWorkload(null)}
+          at={at}
         />
 
         <div className="grid-wrap">
@@ -481,7 +534,7 @@ function Sidebar({
   open, onToggle, view, setView, zoom, setZoom, groupBy, setGroupBy, metric, setMetric, memUnit, setMemUnit,
   refreshInterval, setRefreshInterval,
   contexts, contextIdx, setContextIdx, doRefresh, refreshing, lastRefresh, nodeCount, health,
-  audit, query, setQuery
+  audit, query, setQuery, entries, at, setAt, playing, setPlaying
 }) {
   const is3d = view === "3d";
   return (
@@ -592,6 +645,30 @@ function Sidebar({
         </button>
       </div>
 
+      {entries.length > 0 && (
+        <div className="sidebar-section">
+          <div className="section-label">
+            <span>History</span>
+            <span className="section-value">{entries.length} snapshot{entries.length === 1 ? "" : "s"}</span>
+          </div>
+          <input type="range" min="0" max={entries.length - 1} step="1"
+            value={at == null ? entries.length - 1 : entries.findIndex(e => e.t === at)}
+            onChange={e => {
+              const i = +e.target.value;
+              setPlaying(false);
+              setAt(i === entries.length - 1 ? null : entries[i].t);
+            }}
+            className="slider" />
+          <div className="seg-note">
+            {at == null ? "live" : `${clock(at)} · ${timeAgo(at)}`} · recording since {clock(entries[0].t)}
+          </div>
+          <div className="seg seg-2">
+            <button className={playing ? "seg-on" : ""} onClick={() => setPlaying(p => !p)}>{playing ? "Pause" : "Play"}</button>
+            <button className={at == null ? "seg-on" : ""} onClick={() => { setPlaying(false); setAt(null); }}>Live</button>
+          </div>
+        </div>
+      )}
+
       <div className="sidebar-section">
         <div className="section-label">Memory unit</div>
         <div className="seg seg-3">
@@ -660,7 +737,7 @@ function Sidebar({
 
 function Header({
   metric, view, setView, totals, query, setQuery, match, memUnit, contexts, contextIdx,
-  onMenu, onRefresh, refreshing, workload, onClearWorkload,
+  onMenu, onRefresh, refreshing, workload, onClearWorkload, at,
 }) {
   const [hintOpen, setHintOpen] = useState(false);
   const cpuPct = totals.cpuUsed / (totals.cpuCap || 1);
@@ -682,6 +759,7 @@ function Header({
         <div className="title-row">
           <span className="title-main">{titleMain} Resources</span>
           <span className="title-chip">{contextLabel}</span>
+          {at != null && <span className="title-chip hist-chip">history · {clock(at)}</span>}
           {/* Replica spread of the pinned workload — the anti-affinity check. */}
           {workload && (
             <span className="title-chip wl-chip" title={workload.key}>
@@ -1013,6 +1091,10 @@ function shortContext(ctx) {
   const last = ctx.split("/").pop();
   const region = ctx.match(/(us|eu|ap)-[a-z]+-\d+/);
   return region ? `${last} · ${region[0]}` : last;
+}
+
+function clock(ts) {
+  return new Date(ts).toLocaleTimeString([], { hour12: false });
 }
 
 function timeAgo(ts) {
