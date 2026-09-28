@@ -1311,3 +1311,20 @@ input { font: inherit; color: inherit; background: none; border: none; outline: 
 
 /* QoS panel swatch for Guaranteed; danger and warn already exist above. */
 .sev-ok { color: var(--ok); }
+
+/* 2D map: a topology group (Group by) framing its node cards. */
+.group-box {
+  position: absolute;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-lg);
+  background: var(--bg-2);
+}
+.group-label {
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 10px;
+  font-family: var(--font-mono); font-size: 11px;
+  white-space: nowrap; overflow: hidden;
+}
+.group-name { color: var(--text); overflow: hidden; text-overflow: ellipsis; }
+.group-meta { color: var(--text-soft); }
+.group-util { margin-left: auto; font-weight: 600; }

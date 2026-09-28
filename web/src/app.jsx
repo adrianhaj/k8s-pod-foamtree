@@ -7,7 +7,7 @@ const { workloadKey } = window.k8sWorkload;
 const { warnInfo, statusOf, WARNING_ORDER } = window.k8sNodeStatus;
 const { findingInfo, FINDING_ORDER, PodAuditBadge } = window.k8sPodAudit;
 const { QOS_INFO, QOS_ORDER, NEUTRAL_HUE } = window.k8sQos;
-const { GROUP_BY } = window.k8sTopology;
+const { GROUP_BY, groupNodes, groupUsage } = window.k8sTopology;
 
 // Per-node hue assignment — deterministic from index, evenly spaced around wheel.
 function nodeHue(idx, scheme) {
@@ -448,6 +448,7 @@ function App() {
               nodes={nodes}
               match={match}
               metric={metric}
+              groupBy={groupBy}
               hueOf={hueOf}
               colorBy={colorBy}
               nodeStyle={tw.nodeStyle}
@@ -553,16 +554,14 @@ function Sidebar({
         </div>
       )}
 
-      {is3d && (
-        <div className="sidebar-section">
-          <div className="section-label">Group by</div>
-          <div className="seg seg-3">
-            {GROUP_BY.map(g => (
-              <button key={g.id} className={groupBy === g.id ? "seg-on" : ""} onClick={() => setGroupBy(g.id)}>{g.label}</button>
-            ))}
-          </div>
+      <div className="sidebar-section">
+        <div className="section-label">Group by</div>
+        <div className="seg seg-3">
+          {GROUP_BY.map(g => (
+            <button key={g.id} className={groupBy === g.id ? "seg-on" : ""} onClick={() => setGroupBy(g.id)}>{g.label}</button>
+          ))}
         </div>
-      )}
+      </div>
 
       <div className="sidebar-section">
         <div className="section-label">Resource</div>
@@ -850,8 +849,13 @@ function Stat({ label, value, unit, pct }) {
 
 /* ─────────── Grid ─────────── */
 
+// Height of a group's label strip in the 2D map.
+const GROUP_HEAD = 24;
+
+const utilTone = u => (u > 0.85 ? "var(--danger)" : u > 0.6 ? "var(--warn)" : u > 0.3 ? "var(--ok)" : "var(--info)");
+
 function TreemapGrid({
-  nodes, match, metric, hueOf, colorBy, nodeStyle, density, showLabels, onFocus,
+  nodes, match, metric, groupBy, hueOf, colorBy, nodeStyle, density, showLabels, onFocus,
   highlight, highlightActive, onPodSelect, onPodHover,
 }) {
   const containerRef = useRef(null);
@@ -869,41 +873,58 @@ function TreemapGrid({
     return () => ro.disconnect();
   }, []);
 
-  // Top-level squarify of nodes themselves, sized by capacity
-  const items = nodes.map((n, idx) => ({
-    node: n,
-    value: metric === "cpu" ? n.cpuCapacity : n.memCapacity,
-    idx,
-  }));
+  const cap = n => (metric === "cpu" ? n.cpuCapacity : n.memCapacity);
+  const ready = box.w > 0 && box.h > 0;
 
-  const laid = box.w > 0 && box.h > 0
-    ? window.k8sTreemap.squarify(items, 0, 0, box.w, box.h)
-    : [];
+  // Squarify of nodes themselves, sized by capacity, into one rect.
+  const cards = (members, x, y, w, h) => window.k8sTreemap.squarify(
+    members.map(m => ({ ...m, value: cap(m.node) })), x, y, w, h
+  ).map(it => {
+    const hue = hueOf(it.idx);
+    return (
+      <div key={it.node.id} className="grid-slot"
+        style={{
+          left: it.x, top: it.y, width: it.w - 6, height: it.h - 6,
+        }}>
+        <NodeCard
+          node={it.node}
+          match={match}
+          metric={metric}
+          hue={hue}
+          colorBy={colorBy}
+          style={nodeStyle}
+          density={density}
+          showLabels={showLabels}
+          onClick={() => onFocus(it.node)}
+          highlight={highlight}
+          highlightActive={highlightActive}
+          onPodSelect={onPodSelect}
+          onPodHover={onPodHover}
+        />
+      </div>
+    );
+  });
+
+  // Grouped, the groups are squarified by total capacity first, then each
+  // group's nodes inside its frame, under a label with its utilisation.
+  const groups = !ready || groupBy === "none" ? [] : window.k8sTreemap.squarify(
+    groupNodes(nodes, groupBy).map(g => ({ ...g, value: g.members.reduce((s, m) => s + cap(m.node), 0) })),
+    0, 0, box.w, box.h
+  );
 
   return (
     <div className="grid" ref={containerRef}>
-      {laid.map((it, i) => {
-        const hue = hueOf(it.idx);
+      {ready && groupBy === "none" && cards(nodes.map((node, idx) => ({ node, idx })), 0, 0, box.w, box.h)}
+      {groups.map(g => {
+        const u = groupUsage(g.members)[metric], n = g.members.length;
         return (
-          <div key={it.node.id} className="grid-slot"
-            style={{
-              left: it.x, top: it.y, width: it.w - 6, height: it.h - 6,
-            }}>
-            <NodeCard
-              node={it.node}
-              match={match}
-              metric={metric}
-              hue={hue}
-              colorBy={colorBy}
-              style={nodeStyle}
-              density={density}
-              showLabels={showLabels}
-              onClick={() => onFocus(it.node)}
-              highlight={highlight}
-              highlightActive={highlightActive}
-              onPodSelect={onPodSelect}
-              onPodHover={onPodHover}
-            />
+          <div key={g.key} className="group-box" style={{ left: g.x, top: g.y, width: g.w - 8, height: g.h - 8 }}>
+            <div className="group-label" style={{ height: GROUP_HEAD }}>
+              <span className="group-name">{g.key}</span>
+              <span className="group-meta">{n} node{n === 1 ? "" : "s"}</span>
+              <span className="group-util" style={{ color: utilTone(u) }}>{Math.round(u * 100)}%</span>
+            </div>
+            {cards(g.members, 6, GROUP_HEAD, g.w - 16, g.h - GROUP_HEAD - 10)}
           </div>
         );
       })}

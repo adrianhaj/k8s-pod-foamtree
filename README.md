@@ -19,7 +19,7 @@ It visualizes **resource requests** — what the scheduler reserves — not live
 
 ![k8sfoams 2D treemap view](k8s-foam-tree.png)
 
-A squarified treemap. Each node is a square box, each pod is a foam inside it. A pod with more than one container is split into sub-foams. The empty foam is unused (free) capacity on that node. Pick **CPU** or **Memory** with the Resource control.
+A squarified treemap. Each node is a square box, each pod is a foam inside it. A pod with more than one container is split into sub-foams. The empty foam is unused (free) capacity on that node. Pick **CPU** or **Memory** with the Resource control; **Group by** boxes the nodes by zone, region, pool, instance type or capacity type — see [Topology](#topology).
 
 ## 3D view
 
@@ -40,7 +40,7 @@ Switch views with the sidebar *View* control or the `2D`/`3D` pill in the header
 
 ## Topology
 
-**Group by** in the sidebar — None, Zone, Region, Pool, Type or Capacity — frames the nodes of each availability zone, region, node pool, instance type or capacity type (spot vs on-demand) in the 3D scene as a block of plates on a shared floor. Each group's label reads its name, node count and the requested share of its capacity on the tighter resource, so a zone or pool running hotter than its siblings stands out.
+**Group by** in the sidebar — None, Zone, Region, Pool, Type or Capacity — frames the nodes of each availability zone, region, node pool, instance type or capacity type (spot vs on-demand): in the 2D map as a box of node cards sized by the group's total capacity, in the 3D scene as a block of plates on a shared floor. Each group's label reads its name, node count and the requested share of its capacity (the selected resource in 2D, the tighter one in 3D), so a zone or pool running hotter than its siblings stands out.
 
 | Group by | Node label |
 | --- | --- |
