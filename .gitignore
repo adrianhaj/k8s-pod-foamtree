@@ -3,4 +3,5 @@ local
 bin/
 build/
 web/static/app.js
+web/static/three.js
 kind.kubeconfig

@@ -3,3 +3,8 @@ build/
 local
 kind.kubeconfig
 web/static/app.js
+web/static/three.js
+.git
+.superpowers
+.vscode
+*.png

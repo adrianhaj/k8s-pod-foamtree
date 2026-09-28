@@ -19,7 +19,7 @@ func TestNoExternalScripts(t *testing.T) {
 	if regexp.MustCompile(`text/babel`).Match(index) {
 		t.Fatal("index.html still relies on in-browser Babel")
 	}
-	for _, f := range []string{"app.js", "vendor/react.production.min.js", "vendor/react-dom.production.min.js"} {
+	for _, f := range []string{"app.js", "three.js", "vendor/react.production.min.js", "vendor/react-dom.production.min.js"} {
 		if b, err := fs.ReadFile(Static, f); err != nil || len(b) == 0 {
 			t.Fatalf("%s missing from the embed (run `make web`): %v", f, err)
 		}
