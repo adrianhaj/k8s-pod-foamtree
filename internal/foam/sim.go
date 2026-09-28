@@ -220,7 +220,7 @@ func Drain(nodes []Node, pods []Pod, name string) (DrainResult, bool) {
 				}
 				continue
 			}
-			score := (float64(r.cpu-p.CPU)/float64(n.AllocCPU) + (r.memory-p.Memory)/n.AllocMemory) / 2
+			score := (share(float64(r.cpu-p.CPU), float64(n.AllocCPU)) + share(r.memory-p.Memory, n.AllocMemory)) / 2
 			if best < 0 || score > bestScore {
 				best, bestScore = i, score
 			}
