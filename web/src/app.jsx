@@ -2,7 +2,7 @@
 
 const { useState, useEffect, useMemo, useRef } = React;
 const { NodeCard } = window.k8sTreemap;
-const { Scene3D } = window.k8sCube3D;
+const { Scene3D } = window.k8sScene3D;
 const { workloadKey } = window.k8sWorkload;
 const { warnInfo, statusOf, WARNING_ORDER } = window.k8sNodeStatus;
 const { findingInfo, FINDING_ORDER, PodAuditBadge } = window.k8sPodAudit;
@@ -115,6 +115,9 @@ function mergeResources(cpuData, memData) {
         cpu: podCpu,
         // Convert memory from kB to MiB
         mem: kbToMib(podMem),
+        // null = no ceiling on that axis.
+        cpuLimit: cp.limit ?? null,
+        memLimit: mp.limit != null ? kbToMib(mp.limit) : null,
         containers
       });
     }
@@ -126,8 +129,10 @@ function mergeResources(cpuData, memData) {
     return {
       id: `node-${idx}`,
       name: cg.label,
-      region: "us-east-1",
-      instanceType: "standard",
+      region: cg.region || "",
+      zone: cg.zone || "",
+      pool: cg.pool || "",
+      instanceType: cg.instanceType || "",
       cpuCapacity: cg.weight || 0,
       memCapacity: memCapacity,
       cpuUsed,
@@ -151,6 +156,7 @@ function App() {
 
   const [view, setView] = useState("2d");
   const [zoom, setZoom] = useState(0.7);
+  const [groupBy, setGroupBy] = useState("none");
   const [metric, setMetric] = useState("cpu");
   const [memUnit, setMemUnit] = useState("GiB");
   const [refreshInterval, setRefreshInterval] = useState(60);
@@ -359,6 +365,7 @@ function App() {
         onToggle={() => setSidebarOpen(s => !s)}
         view={view} setView={setView}
         zoom={zoom} setZoom={setZoom}
+        groupBy={groupBy} setGroupBy={setGroupBy}
         metric={metric} setMetric={setMetric}
         memUnit={memUnit} setMemUnit={setMemUnit}
         refreshInterval={refreshInterval} setRefreshInterval={setRefreshInterval}
@@ -401,6 +408,7 @@ function App() {
               nodes={nodes}
               match={match}
               zoom={zoom}
+              groupBy={groupBy}
               hueOf={idx => nodeHue(idx, tw.colorScheme)}
               memUnit={memUnit}
               fmtMem={fmtMem}
@@ -470,7 +478,7 @@ function App() {
 /* ─────────── Sidebar ─────────── */
 
 function Sidebar({
-  open, onToggle, view, setView, zoom, setZoom, metric, setMetric, memUnit, setMemUnit,
+  open, onToggle, view, setView, zoom, setZoom, groupBy, setGroupBy, metric, setMetric, memUnit, setMemUnit,
   refreshInterval, setRefreshInterval,
   contexts, contextIdx, setContextIdx, doRefresh, refreshing, lastRefresh, nodeCount, health,
   audit, query, setQuery
@@ -516,6 +524,17 @@ function Sidebar({
           </div>
           <input type="range" min="0.4" max="1.6" step="0.05" value={zoom}
             onChange={e => setZoom(+e.target.value)} className="slider" />
+        </div>
+      )}
+
+      {is3d && (
+        <div className="sidebar-section">
+          <div className="section-label">Group by</div>
+          <div className="seg seg-3">
+            {[["none", "None"], ["zone", "Zone"], ["pool", "Pool"]].map(([id, label]) => (
+              <button key={id} className={groupBy === id ? "seg-on" : ""} onClick={() => setGroupBy(id)}>{label}</button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -841,7 +860,7 @@ function FocusOverlay({ node, onClose, metric, memUnit }) {
           <div>
             <div className="overlay-title">{node.name}</div>
             <div className="overlay-sub">
-              {node.instanceType} · {node.region} ·
+              {[node.instanceType, node.zone || node.region, node.pool].filter(Boolean).map(s => `${s} · `)}
               <span className={`status-pill status-${node.status}`}>{node.status}</span>
             </div>
           </div>

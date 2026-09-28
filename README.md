@@ -21,19 +21,22 @@ It visualizes **resource requests** — what the scheduler reserves — not live
 
 A squarified treemap. Each node is a square box, each pod is a foam inside it. A pod with more than one container is split into sub-foams. The empty foam is unused (free) capacity on that node. Pick **CPU** or **Memory** with the Resource control.
 
-## 3D cubes
+## 3D view
 
 ![k8sfoams 3D cube view](k8s-foam-tree-3d.png)
 
-An isometric view: one plate per node, one cube per pod. A cube encodes both resources at once:
+A WebGL (Three.js) scene: one plate per node, one cube per pod. A cube encodes both resources at once:
 
 - **width × depth** (footprint) → CPU request
 - **height** → memory request
 - **color** → node
+- **translucent shell** → the pod's limits, grown only on the axes that have one (footprint from the CPU limit, height from the memory limit). A pod without a limit on an axis has no ceiling to draw there.
 
-Both dimensions are square-root scaled, so a 10× larger pod is not 10× wider. Because a cube already shows both resources, the CPU/Memory picker is disabled in 3D and a **Zoom** slider takes its place.
+Both dimensions are square-root scaled, so a 10× larger pod is not 10× wider. Because a cube already shows both resources, the CPU/Memory picker is disabled in 3D and a **Zoom** slider takes its place. Drag to orbit, scroll to zoom; hover a pod for its requests and limits, click it to pin its workload, click a plate to open the node.
 
-Switch views with the sidebar *View* control or the `2D`/`3D` pill in the header. It is client-side state — no flag, no restart. The scene is pure CSS 3D, not WebGL, so it needs no GPU support.
+**Group by** None / Zone / Pool splits the plates into labelled blocks by `topology.kubernetes.io/zone` or node pool (Karpenter, EKS, GKE and AKS pool labels). On refresh, new pods grow in and removed ones shrink out; the camera stays where you left it.
+
+Switch views with the sidebar *View* control or the `2D`/`3D` pill in the header. Frames render only when something changes, so an idle dashboard costs nothing. Without WebGL, a notice points to the 2D map.
 
 ## Controls
 
@@ -41,7 +44,7 @@ Switch views with the sidebar *View* control or the `2D`/`3D` pill in the header
 - **Context**: the sidebar lists every context from your kubeconfig, active one first, tagged by provider. **Switching only changes the context inside the k8sfoams web server — your ~/.kube/config file is never modified.**
 - **Refresh**: slider from 5 to 600 seconds, plus a *Refresh now* button.
 - **Filter**: the header query bar highlights matching pods and dims the rest — nothing is removed from the view. See [Filtering](#filtering) for the full grammar.
-- **Focus**: click a node to open an overlay listing its pods with per-pod CPU/memory and container breakdown.
+- **Focus**: click a node to open an overlay listing its pods with per-pod CPU/memory and container breakdown, plus its instance type, zone and pool.
 
 ## Node health
 

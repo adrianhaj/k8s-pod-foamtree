@@ -7,7 +7,7 @@ KIND_KUBECONFIG ?= $(CURDIR)/kind.kubeconfig
 KIND_KUBECTL    := kubectl --kubeconfig $(KIND_KUBECONFIG) --context kind-k8sfoams
 
 # Load order matters: each file publishes its API on window.* for the next.
-JSX := $(addprefix web/src/,nodestatus.jsx podaudit.jsx query.jsx workload.jsx tweaks-panel.jsx treemap.jsx cube3d.jsx app.jsx)
+JSX := $(addprefix web/src/,nodestatus.jsx podaudit.jsx query.jsx workload.jsx tweaks-panel.jsx treemap.jsx scene3d.jsx app.jsx)
 APP_JS := web/static/app.js
 THREE_JS := web/static/three.js
 

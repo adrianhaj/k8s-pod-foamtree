@@ -1302,3 +1302,9 @@ input { font: inherit; color: inherit; background: none; border: none; outline: 
 @media (max-width: 1000px) {
   .wl-chip { display: none; }
 }
+
+/* WebGL 3D view: the canvas fills the scene; the legend and tooltip stay DOM. */
+.scene-gl { position: absolute; inset: 0; }
+.scene-gl canvas { display: block; cursor: grab; }
+.scene-gl canvas:active { cursor: grabbing; }
+.scene-nogl { display: grid; place-items: center; padding: 24px; color: var(--text-dim, #9aa3b8); text-align: center; }
