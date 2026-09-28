@@ -90,6 +90,13 @@ reload starts over. Drag the **History** slider in the sidebar to go back,
 The auto-refresh keeps recording while you look back. In 3D, pods that
 appear or disappear between snapshots grow in and shrink out.
 
+**Compare** takes the snapshot on screen as a baseline; from then on the
+**Changes** panel lists pods added (green) and removed (red), workloads whose
+per-pod requests changed (amber) and per-node deltas, and the map highlights
+the added and resized pods (a typed query takes precedence). The baseline
+survives a context switch, so it also compares two contexts: record one,
+press Compare, switch to the other.
+
 ## Filtering
 
 The query bar in the header is a **highlighter, not a filter of last resort**: matching pods glow, everything else dims. No pod, node or box ever leaves the layout, so the shape of the cluster stays comparable while you narrow down. Once the query is non-empty and valid, a live counter inside the input reads `N / M pods` (and turns red at `0`).

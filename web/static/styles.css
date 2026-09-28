@@ -1311,3 +1311,15 @@ input { font: inherit; color: inherit; background: none; border: none; outline: 
 
 /* History: the header chip while a recorded snapshot is on screen. */
 .hist-chip { color: var(--warn); border-color: var(--warn); }
+
+/* History comparison: one collapsible list per kind of change. */
+.sev-ok { color: var(--ok); }
+.diff-list summary { cursor: pointer; list-style: none; }
+.diff-list summary::-webkit-details-marker { display: none; }
+.diff-item {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-soft);
+  padding: 2px 0 2px 16px;
+  word-break: break-all;
+}

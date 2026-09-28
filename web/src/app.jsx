@@ -6,7 +6,7 @@ const { Scene3D } = window.k8sScene3D;
 const { workloadKey } = window.k8sWorkload;
 const { warnInfo, statusOf, WARNING_ORDER } = window.k8sNodeStatus;
 const { findingInfo, FINDING_ORDER, PodAuditBadge } = window.k8sPodAudit;
-const { pack, unpack, record } = window.k8sHistory;
+const { pack, unpack, record, diff } = window.k8sHistory;
 
 // Per-node hue assignment — deterministic from index, evenly spaced around wheel.
 function nodeHue(idx, scheme) {
@@ -178,6 +178,9 @@ function App() {
   const [history, setHistory] = useState([]);
   const [at, setAt] = useState(null);
   const [playing, setPlaying] = useState(false);
+  // Comparison baseline: a recorded snapshot, possibly of another context.
+  const [base, setBase] = useState(null);
+  const [baseNodes, setBaseNodes] = useState(null);
   const atRef = useRef(at);
   atRef.current = at;
   const lastRaw = useRef(new Map());
@@ -298,6 +301,17 @@ function App() {
     return () => clearTimeout(id);
   }, [playing, at, entries]);
 
+  useEffect(() => {
+    setBaseNodes(null);
+    if (!base) return;
+    let stale = false;
+    unpack(base).then(([cpu, mem]) => { if (!stale) setBaseNodes(mergeResources(cpu, mem)); });
+    return () => { stale = true; };
+  }, [base]);
+
+  const changes = useMemo(() => (base && baseNodes ? diff(baseNodes, nodes) : null), [base, baseNodes, nodes]);
+  const toggleCompare = () => setBase(b => (b ? null : at == null ? entries[entries.length - 1] : entries.find(e => e.t === at)));
+
   const parsedQuery = useMemo(() => window.k8sQuery.parseQuery(query), [query]);
 
   // Matched pods are highlighted and unmatched ones dimmed — nodes are never
@@ -316,8 +330,12 @@ function App() {
         if (window.k8sQuery.podMatches(p, parsedQuery, n.name)) pods.add(p);
       }
     }
+    // Comparing highlights the added and resized pods, unless a query is typed.
+    if (!active && changes && changes.pods.size > 0) {
+      return { active: true, pods: changes.pods, dimNodes: new Set(), count: changes.pods.size, total, errors: parsedQuery.errors };
+    }
     return { active, pods, dimNodes, count: active ? pods.size : total, total, errors: parsedQuery.errors };
-  }, [nodes, parsedQuery]);
+  }, [nodes, parsedQuery, changes]);
 
   const highlight = selectedWorkload || hoveredWorkload;
   const highlightActive = !!selectedWorkload;
@@ -429,6 +447,7 @@ function App() {
         query={query} setQuery={setQuery}
         entries={entries} at={at} setAt={setAt}
         playing={playing} setPlaying={setPlaying}
+        base={base} toggleCompare={toggleCompare} changes={changes} ctxName={ctxName}
       />
 
       <main className="main">
@@ -534,7 +553,7 @@ function Sidebar({
   open, onToggle, view, setView, zoom, setZoom, groupBy, setGroupBy, metric, setMetric, memUnit, setMemUnit,
   refreshInterval, setRefreshInterval,
   contexts, contextIdx, setContextIdx, doRefresh, refreshing, lastRefresh, nodeCount, health,
-  audit, query, setQuery, entries, at, setAt, playing, setPlaying
+  audit, query, setQuery, entries, at, setAt, playing, setPlaying, base, toggleCompare, changes, ctxName
 }) {
   const is3d = view === "3d";
   return (
@@ -662,9 +681,28 @@ function Sidebar({
           <div className="seg-note">
             {at == null ? "live" : `${clock(at)} · ${timeAgo(at)}`} · recording since {clock(entries[0].t)}
           </div>
-          <div className="seg seg-2">
+          <div className="seg seg-3">
             <button className={playing ? "seg-on" : ""} onClick={() => setPlaying(p => !p)}>{playing ? "Pause" : "Play"}</button>
+            <button className={base ? "seg-on" : ""} onClick={toggleCompare}
+              title="Compare what is on screen from now on with this snapshot">Compare</button>
             <button className={at == null ? "seg-on" : ""} onClick={() => { setPlaying(false); setAt(null); }}>Live</button>
+          </div>
+        </div>
+      )}
+
+      {changes && (
+        <div className="sidebar-section">
+          <div className="section-label">
+            <span>Changes</span>
+            <span className="section-value">
+              since {clock(base.t)}{base.context !== ctxName ? ` · ${shortContext(base.context)}` : ""}
+            </span>
+          </div>
+          <div className="health-rows">
+            <DiffList sev="ok" label="Pods added" items={changes.added.map(x => `${x.pod.namespace}/${x.pod.name}`)} />
+            <DiffList sev="danger" label="Pods removed" items={changes.removed.map(x => `${x.pod.namespace}/${x.pod.name}`)} />
+            <DiffList sev="warn" label="Workloads resized" items={changes.resized.map(r => resizeText(r, memUnit))} />
+            <DiffList sev="info" label="Nodes changed" items={changes.nodes.map(d => nodeDeltaText(d, memUnit))} />
           </div>
         </div>
       )}
@@ -731,6 +769,38 @@ function Sidebar({
       </div>
     </aside>
   );
+}
+
+// ponytail: lists stop at 100 rows; the counts stay exact. A virtual list if
+// someone needs to read a whole cluster-vs-cluster diff here.
+function DiffList({ sev, label, items }) {
+  return (
+    <details className="diff-list">
+      <summary className="health-row">
+        <span className={`audit-swatch sev-${sev}`} />
+        <span className="health-name">{label}</span>
+        <span className="health-count">{items.length}</span>
+      </summary>
+      {items.slice(0, 100).map(s => <div key={s} className="diff-item">{s}</div>)}
+      {items.length > 100 && <div className="diff-item">+{items.length - 100} more</div>}
+    </details>
+  );
+}
+
+function resizeText(r, memUnit) {
+  const list = set => [...set].sort((a, b) => a - b);
+  const axis = (a, b, f, unit) => {
+    const from = list(a).map(f).join(","), to = list(b).map(f).join(",");
+    return from === to ? "" : ` · ${from} → ${to} ${unit}`;
+  };
+  return r.key + axis(r.before.cpu, r.after.cpu, v => (v / 1000).toFixed(2), "cores")
+    + axis(r.before.mem, r.after.mem, v => fmtMem(v, memUnit), memUnit);
+}
+
+function nodeDeltaText(d, memUnit) {
+  const signed = s => (s.startsWith("-") ? s : `+${s}`);
+  const state = !d.before ? " (new)" : !d.after ? " (gone)" : "";
+  return `${d.name}${state} · ${signed(String(d.pods))} pods · ${signed((d.cpu / 1000).toFixed(2))} cores · ${signed(fmtMem(d.mem, memUnit))} ${memUnit}`;
 }
 
 /* ─────────── Header ─────────── */
