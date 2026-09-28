@@ -6,6 +6,7 @@ const { Scene3D } = window.k8sScene3D;
 const { workloadKey } = window.k8sWorkload;
 const { warnInfo, statusOf, WARNING_ORDER } = window.k8sNodeStatus;
 const { findingInfo, FINDING_ORDER, PodAuditBadge } = window.k8sPodAudit;
+const { ExportMenu } = window.k8sExport;
 
 // Per-node hue assignment — deterministic from index, evenly spaced around wheel.
 function nodeHue(idx, scheme) {
@@ -173,6 +174,7 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [nodes, setNodes] = useState([]);
   const [error, setError] = useState(null);
+  const gridRef = useRef(null);
 
   // Load contexts from server
   useEffect(() => {
@@ -400,9 +402,21 @@ function App() {
           refreshing={refreshing}
           workload={workloadStats}
           onClearWorkload={() => setSelectedWorkload(null)}
+          exportMenu={
+            <ExportMenu
+              view={view}
+              context={contexts[contextIdx] && contexts[contextIdx].context}
+              gridRef={gridRef}
+              treemap={{
+                nodes, metric, match, highlight, highlightActive,
+                hueOf: idx => nodeHue(idx, tw.colorScheme),
+                nodeStyle: tw.nodeStyle, density: tw.density, showLabels: tw.showLabels,
+              }}
+            />
+          }
         />
 
-        <div className="grid-wrap">
+        <div className="grid-wrap" ref={gridRef}>
           {view === "3d" ? (
             <Scene3D
               nodes={nodes}
@@ -660,7 +674,7 @@ function Sidebar({
 
 function Header({
   metric, view, setView, totals, query, setQuery, match, memUnit, contexts, contextIdx,
-  onMenu, onRefresh, refreshing, workload, onClearWorkload,
+  onMenu, onRefresh, refreshing, workload, onClearWorkload, exportMenu,
 }) {
   const [hintOpen, setHintOpen] = useState(false);
   const cpuPct = totals.cpuUsed / (totals.cpuCap || 1);
@@ -723,6 +737,7 @@ function Header({
               stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
+        {exportMenu}
       </div>
     </header>
   );
