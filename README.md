@@ -4,9 +4,9 @@
   <img src="logo.png" alt="k8sfoams logo">
 </p>
 
-**k8sfoams** is a local, read-only dashboard that answers one question: *where is my cluster's requested CPU and memory actually going, and how much room is left on each node?*
+**k8sfoams** is a read-only dashboard that answers one question: *where is my cluster's requested CPU and memory actually going, and how much room is left on each node?*
 
-It visualizes **resource requests** — what the scheduler reserves — not live usage. That makes it a tool for spotting over-requesting pods and idle headroom, not a performance monitor. It is one static Go binary with the UI embedded, reads *~/.kube/config* (or `$KUBECONFIG`) with the standard Kubernetes client, and needs no metrics-server.
+It visualizes **resource requests** — what the scheduler reserves — not live usage. That makes it a tool for spotting over-requesting pods and idle headroom, not a performance monitor. It is one static Go binary with the UI embedded. Run it on your laptop against *~/.kube/config* (or `$KUBECONFIG`), or inside the cluster behind built-in OIDC sign-in. It needs no metrics-server.
 
 ## How it works
 
@@ -202,6 +202,29 @@ make run ARGS="--port 9090"
 make build                    # bin/k8sfoams
 ```
 
+## Run in a cluster
+
+```bash
+make kind-up deploy-dev port-forward   # local kind cluster, auth off, http://localhost:8080
+make kind-down
+```
+
+`make kind-up` keeps the kind cluster's credentials in `./kind.kubeconfig` (gitignored) and never touches *~/.kube/config*; every kind target passes that file explicitly. To run the binary against the same cluster: `KUBECONFIG="$PWD/kind.kubeconfig" make run`.
+
+For a real cluster, write an overlay on `deploy/base` that sets your image, OIDC issuer, client id, redirect URL, allowed groups/emails and Ingress host, then create the secret and apply:
+
+```bash
+kubectl create namespace k8sfoams
+kubectl -n k8sfoams create secret generic k8sfoams-oidc \
+  --from-literal=client-secret=<from your IdP> \
+  --from-literal=session-key="$(openssl rand -base64 32)"
+kubectl apply -k <your-overlay>
+```
+
+Register `https://<host>/auth/callback` as the redirect URI in your IdP. The service account can only `get`/`list`/`watch` nodes and pods; every allowed user sees the whole cluster through it. On Microsoft Entra ID, prefer `--oidc-allowed-groups` or a single-tenant issuer: Entra omits `email_verified`, and an email glob would trust an unverified address.
+
+Images: `make image` builds `ghcr.io/adrianhaj/k8sfoams:<git describe>` locally; `make image-push IMAGE=<registry>/k8sfoams` pushes amd64 and arm64. CI (`.github/workflows/go.yaml`) lints, tests and builds both on every PR and on `main`; it does not publish images.
+
 ## Flags
 
 | Flag | Default | |
@@ -223,4 +246,5 @@ Secrets come from the environment only: `K8SFOAMS_OIDC_CLIENT_SECRET`, `K8SFOAMS
 ```bash
 make test lint
 make clean
+make image
 ```
