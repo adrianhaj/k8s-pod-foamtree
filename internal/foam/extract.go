@@ -5,6 +5,7 @@ package foam
 import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	resourcehelper "k8s.io/component-helpers/resource"
 )
 
@@ -29,6 +30,12 @@ type Pod struct {
 	// nil when any running container is unbounded on that axis.
 	CPULimit    *int64
 	MemoryLimit *float64
+	// What the scheduler's filters read. Affinity holds node affinity only.
+	NodeSelector map[string]string
+	Affinity     *corev1.Affinity
+	Tolerations  []corev1.Toleration
+	// Kind of the controlling owner, "" for a bare pod: decides what a drain does with it.
+	Controller string
 }
 
 type Taint struct {
@@ -46,6 +53,12 @@ type Node struct {
 	Conditions    map[string]bool
 	// "" when the node does not carry the label.
 	Zone, Region, InstanceType, Pool string
+	// All labels, for node selectors and affinity.
+	Labels map[string]string
+	// Capacity minus system reservations: what the scheduler hands out.
+	AllocCPU    int64
+	AllocMemory float64
+	AllocPods   int64
 }
 
 // Kubernetes adds this taint itself on cordon; spec.unschedulable already
@@ -68,9 +81,6 @@ var PoolLabels = []string{
 	"cloud.google.com/gke-nodepool",
 	"kubernetes.azure.com/agentpool",
 }
-
-// TopologyLabels are the node labels the dashboard reads.
-var TopologyLabels = append([]string{zoneLabel, regionLabel, instanceTypeLabel}, PoolLabels...)
 
 func kB(q resource.Quantity) float64 { return float64(q.Value()) / 1000 }
 
@@ -136,6 +146,12 @@ func FromPod(p *corev1.Pod) Pod {
 		InitContainers: containers(p.Spec.InitContainers),
 		Labels:         labels,
 		QOS:            string(p.Status.QOSClass),
+		NodeSelector:   p.Spec.NodeSelector,
+		Affinity:       p.Spec.Affinity,
+		Tolerations:    p.Spec.Tolerations,
+	}
+	if ref := metav1.GetControllerOf(p); ref != nil {
+		out.Controller = ref.Kind
 	}
 	lim := resourcehelper.PodLimits(p, resourcehelper.PodResourcesOptions{})
 	if bounded(p, corev1.ResourceCPU) {
@@ -186,5 +202,9 @@ func FromNode(n *corev1.Node) Node {
 		Region:        n.Labels[regionLabel],
 		InstanceType:  n.Labels[instanceTypeLabel],
 		Pool:          pool,
+		Labels:        n.Labels,
+		AllocCPU:      n.Status.Allocatable.Cpu().MilliValue(),
+		AllocMemory:   kB(*n.Status.Allocatable.Memory()),
+		AllocPods:     n.Status.Allocatable.Pods().Value(),
 	}
 }

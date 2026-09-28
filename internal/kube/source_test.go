@@ -171,14 +171,50 @@ func TestSlimPodKeepsOnlyWhatTheDashboardReads(t *testing.T) {
 	}
 }
 
-func TestSlimNodeKeepsOnlyTopologyLabels(t *testing.T) {
-	in := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n", Labels: map[string]string{
-		"topology.kubernetes.io/zone": "eu-west-1a", "karpenter.sh/nodepool": "spot",
-		"kubernetes.io/hostname": "n", "beta.kubernetes.io/arch": "arm64",
-	}}}
-	out, _ := slimNode(in)
-	want := map[string]string{"topology.kubernetes.io/zone": "eu-west-1a", "karpenter.sh/nodepool": "spot"}
-	if got := out.(*corev1.Node).Labels; !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %v", got)
+// Selectors can name any node label, and the scheduler fills allocatable, not capacity.
+func TestSlimNodeKeepsSchedulingFields(t *testing.T) {
+	labels := map[string]string{"topology.kubernetes.io/zone": "eu-west-1a", "disk": "ssd"}
+	alloc := corev1.ResourceList{corev1.ResourcePods: resource.MustParse("110")}
+	out, _ := slimNode(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n", Labels: labels,
+		Annotations: map[string]string{"big": "blob"}}, Status: corev1.NodeStatus{Allocatable: alloc}})
+	n := out.(*corev1.Node)
+	if !reflect.DeepEqual(n.Labels, labels) || !reflect.DeepEqual(n.Status.Allocatable, alloc) || n.Annotations != nil {
+		t.Fatalf("got %+v", n)
+	}
+}
+
+func TestSlimPodKeepsSchedulingConstraints(t *testing.T) {
+	yes := true
+	required := &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{{MatchExpressions: []corev1.NodeSelectorRequirement{
+		{Key: "disk", Operator: corev1.NodeSelectorOpIn, Values: []string{"ssd"}}}}}}
+	in := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "p", OwnerReferences: []metav1.OwnerReference{
+			{Kind: "Workflow", Name: "w"}, {Kind: "ReplicaSet", Name: "web-5d8f", Controller: &yes}}},
+		Spec: corev1.PodSpec{
+			NodeSelector: map[string]string{"pool": "general"},
+			Tolerations:  []corev1.Toleration{{Key: "spot", Operator: corev1.TolerationOpExists}},
+			Affinity: &corev1.Affinity{
+				NodeAffinity: &corev1.NodeAffinity{
+					RequiredDuringSchedulingIgnoredDuringExecution:  required,
+					PreferredDuringSchedulingIgnoredDuringExecution: []corev1.PreferredSchedulingTerm{{Weight: 1}},
+				},
+				PodAntiAffinity: &corev1.PodAntiAffinity{},
+			},
+		},
+	}
+	out, _ := slimPod(in)
+	p := out.(*corev1.Pod)
+	if p.Spec.NodeSelector["pool"] != "general" || len(p.Spec.Tolerations) != 1 ||
+		p.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution != required {
+		t.Fatalf("dropped a constraint: %+v", p.Spec)
+	}
+	if p.Spec.Affinity.PodAntiAffinity != nil || p.Spec.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution != nil {
+		t.Fatalf("kept what the simulators never read: %+v", p.Spec.Affinity)
+	}
+	if len(p.OwnerReferences) != 1 || p.OwnerReferences[0].Kind != "ReplicaSet" {
+		t.Fatalf("owners: %+v", p.OwnerReferences)
+	}
+	if out, _ := slimPod(&corev1.Pod{}); out.(*corev1.Pod).Spec.Affinity != nil || out.(*corev1.Pod).OwnerReferences != nil {
+		t.Fatalf("a bare pod gained fields: %+v", out)
 	}
 }

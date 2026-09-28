@@ -203,21 +203,35 @@ func (s *Source) evict(name string, c *clusterCache) {
 	c.cancel()
 }
 
-// slimPod keeps only what the dashboard reads. Env, volumes and managedFields
-// dominate pod size, so this is most of the cache's memory on a big cluster.
+// slimPod keeps only what the dashboard and the simulators read. Env, volumes
+// and managedFields dominate pod size, so this is most of the cache's memory
+// on a big cluster.
 func slimPod(obj any) (any, error) {
 	p, ok := obj.(*corev1.Pod)
 	if !ok {
 		return obj, nil // DeletedFinalStateUnknown tombstones pass through
 	}
+	var owners []metav1.OwnerReference
+	if ref := metav1.GetControllerOf(p); ref != nil {
+		owners = []metav1.OwnerReference{*ref}
+	}
+	var affinity *corev1.Affinity
+	if a := p.Spec.Affinity; a != nil && a.NodeAffinity != nil && a.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution != nil {
+		affinity = &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: a.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution}}
+	}
 	return &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Name: p.Name, Namespace: p.Namespace, UID: p.UID, ResourceVersion: p.ResourceVersion, Labels: p.Labels},
+		ObjectMeta: metav1.ObjectMeta{Name: p.Name, Namespace: p.Namespace, UID: p.UID, ResourceVersion: p.ResourceVersion,
+			Labels: p.Labels, OwnerReferences: owners},
 		Spec: corev1.PodSpec{
 			NodeName:       p.Spec.NodeName,
 			Containers:     slimContainers(p.Spec.Containers),
 			InitContainers: slimContainers(p.Spec.InitContainers),
 			Overhead:       p.Spec.Overhead,
 			Resources:      p.Spec.Resources,
+			NodeSelector:   p.Spec.NodeSelector,
+			Affinity:       affinity,
+			Tolerations:    p.Spec.Tolerations,
 		},
 		Status: corev1.PodStatus{QOSClass: p.Status.QOSClass},
 	}, nil
@@ -240,18 +254,9 @@ func slimNode(obj any) (any, error) {
 	for _, c := range n.Status.Conditions {
 		conds = append(conds, corev1.NodeCondition{Type: c.Type, Status: c.Status})
 	}
-	var labels map[string]string
-	for _, k := range foam.TopologyLabels {
-		if v, ok := n.Labels[k]; ok {
-			if labels == nil {
-				labels = map[string]string{}
-			}
-			labels[k] = v
-		}
-	}
 	return &corev1.Node{
-		ObjectMeta: metav1.ObjectMeta{Name: n.Name, UID: n.UID, ResourceVersion: n.ResourceVersion, Labels: labels},
+		ObjectMeta: metav1.ObjectMeta{Name: n.Name, UID: n.UID, ResourceVersion: n.ResourceVersion, Labels: n.Labels},
 		Spec:       corev1.NodeSpec{Unschedulable: n.Spec.Unschedulable, Taints: n.Spec.Taints},
-		Status:     corev1.NodeStatus{Capacity: n.Status.Capacity, Conditions: conds},
+		Status:     corev1.NodeStatus{Capacity: n.Status.Capacity, Allocatable: n.Status.Allocatable, Conditions: conds},
 	}, nil
 }
