@@ -19,7 +19,7 @@ It visualizes **resource requests** — what the scheduler reserves — not live
 
 ![k8sfoams 2D treemap view](k8s-foam-tree.png)
 
-A squarified treemap. Each node is a square box, each pod is a foam inside it. A pod with more than one container is split into sub-foams. The empty foam is unused (free) capacity on that node. Pick **CPU** or **Memory** with the Resource control.
+A squarified treemap. Each node is a square box, each pod is a foam inside it. A pod with more than one container is split into sub-foams. The empty foam is unused (free) capacity on that node. Pick **CPU** or **Memory** with the Resource control. Nodes that offer GPUs, ephemeral storage or hugepages add them to that control: the map then sizes nodes and pods by that resource, nodes without it drop out, and the node overlay shows how much of each is requested.
 
 ## 3D view
 

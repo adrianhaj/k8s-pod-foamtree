@@ -64,6 +64,16 @@ function squarify(items, x, y, w, h) {
   return out;
 }
 
+// Pods and containers carry CPU and memory, plus extended requests (GPUs,
+// ephemeral-storage, hugepages) under ext; any of them can be the metric.
+function metricValue(o, metric) {
+  return metric === "cpu" ? o.cpu : metric === "mem" ? o.mem : (o.ext[metric] || 0);
+}
+
+function metricCap(node, metric) {
+  return metric === "cpu" ? node.cpuCapacity : metric === "mem" ? node.memCapacity : (node.ext[metric] || 0);
+}
+
 // Render a node card: header + nested treemap of pods (each pod = treemap of containers).
 function NodeCard({
   node, match, metric, hue, style: nodeStyle, showLabels, density, onClick,
@@ -95,8 +105,8 @@ function NodeCard({
   // Compute pod values + empty space. Size each pod by its effective request
   // (max(sum regular, max init)) — summing containers would double-count
   // init containers, which run sequentially before the regular ones.
-  const podValue = p => (metric === "cpu" ? p.cpu : p.mem);
-  const cap = metric === "cpu" ? node.cpuCapacity : node.memCapacity;
+  const podValue = p => metricValue(p, metric);
+  const cap = metricCap(node, metric);
   const used = node.pods.reduce((s, p) => s + podValue(p), 0);
   // A pod requesting nothing on this metric (every BestEffort pod, by
   // definition) weighs 0 and squarify's `value > 0` guard drops it — so a
@@ -211,7 +221,7 @@ function PodBox({
   const laid = React.useMemo(() => {
     const containers = pod.containers.map(c => ({
       container: c,
-      value: metric === "cpu" ? c.cpu : c.mem,
+      value: metricValue(c, metric),
     }));
     return squarify(
       containers,
@@ -264,4 +274,4 @@ function PodBox({
   );
 }
 
-window.k8sTreemap = { squarify, NodeCard, PodBox };
+window.k8sTreemap = { squarify, NodeCard, PodBox, metricCap };
