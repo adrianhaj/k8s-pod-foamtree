@@ -44,12 +44,14 @@ func (s *syntheticSource) Snapshot(context.Context, string) ([]foam.Node, []foam
 			Conditions: map[string]bool{"Ready": true, "MemoryPressure": i%31 == 5},
 			Zone:       "synthetic-1" + string(rune('a'+i%3)), Region: "synthetic-1",
 			InstanceType: "m.4xlarge", Pool: pools[i%len(pools)], Unschedulable: i%23 == 7,
+			CapacityType: "on-demand",
 		}
 		switch n.Pool {
 		case "memory":
 			n.Memory, n.InstanceType = 128_000_000, "r.4xlarge"
 		case "spot":
 			n.Taints = []foam.Taint{{Key: "spot", Value: "true", Effect: "NoSchedule"}}
+			n.CapacityType = "spot"
 		}
 		nodes = append(nodes, n)
 		for j := range s.podsPerNode {

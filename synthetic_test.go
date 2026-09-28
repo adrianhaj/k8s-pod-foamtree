@@ -25,9 +25,9 @@ func TestSyntheticSnapshot(t *testing.T) {
 	if err != nil || len(nodes) != 30 || len(pods) != 600 {
 		t.Fatalf("nodes=%d pods=%d err=%v", len(nodes), len(pods), err)
 	}
-	zones, pools := map[string]bool{}, map[string]bool{}
+	zones, pools, capacity := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for _, n := range nodes {
-		zones[n.Zone], pools[n.Pool] = true, true
+		zones[n.Zone], pools[n.Pool], capacity[n.CapacityType] = true, true, true
 	}
 	unboundedMem, boundedCPU := 0, 0
 	for _, p := range pods {
@@ -38,8 +38,9 @@ func TestSyntheticSnapshot(t *testing.T) {
 			boundedCPU++
 		}
 	}
-	if len(zones) != 3 || len(pools) < 3 || unboundedMem == 0 || boundedCPU == 0 || boundedCPU == len(pods) {
-		t.Fatalf("not varied enough: zones=%v pools=%v unboundedMem=%d boundedCPU=%d", zones, pools, unboundedMem, boundedCPU)
+	if len(zones) != 3 || len(pools) < 3 || len(capacity) != 2 || !capacity["spot"] || !capacity["on-demand"] ||
+		unboundedMem == 0 || boundedCPU == 0 || boundedCPU == len(pods) {
+		t.Fatalf("not varied enough: zones=%v pools=%v capacity=%v unboundedMem=%d boundedCPU=%d", zones, pools, capacity, unboundedMem, boundedCPU)
 	}
 
 	// The CPU and memory requests of one refresh must see the same pods.
