@@ -103,4 +103,60 @@ function FitVerdict({ reasons }) {
   );
 }
 
-window.k8sSimulate = { fitMatch, FitPanel, FitVerdict };
+// What evicting every pod on this node would do, as `kubectl drain` or a node failure would.
+function DrainSection({ context, node }) {
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const run = async () => {
+    setBusy(true);
+    try {
+      setResult(await getJSON(`/api/drain?${new URLSearchParams({ context, node })}`));
+      setError(null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="overlay-sched">
+      <div className="ov-section-title">Drain simulation</div>
+      {!result && <button className="btn-primary" onClick={run} disabled={busy}>Simulate drain</button>}
+      {error && <div className="sim-error">{error}</div>}
+      {result && (
+        <>
+          <div className="ov-chips">
+            <span className="status-pill status-ready">{result.moved.length} rescheduled</span>
+            <span className={`status-pill ${result.pending.length ? "status-scheduling-disabled" : "status-ready"}`}>
+              {result.pending.length} pending
+            </span>
+            {result.unmanaged.length > 0 && (
+              <span className="status-pill status-pressure">{result.unmanaged.length} unmanaged · not recreated</span>
+            )}
+            {result.ignored.length > 0 && (
+              <span className="status-pill status-tainted">{result.ignored.length} daemonset / static</span>
+            )}
+          </div>
+          <div className="taint-rows">
+            {result.pending.map(p => (
+              <div key={p.pod} className="taint-row" title={p.reason}>
+                <code>{p.pod}</code><span className="sim-error">{p.reason}</span>
+              </div>
+            ))}
+            {result.unmanaged.map(p => (
+              <div key={p} className="taint-row"><code>{p}</code><span className="taint-effect">deleted</span></div>
+            ))}
+            {result.moved.map(p => (
+              <div key={p.pod} className="taint-row"><code>{p.pod}</code><span className="taint-effect">→ {p.node}</span></div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+window.k8sSimulate = { fitMatch, FitPanel, FitVerdict, DrainSection };
