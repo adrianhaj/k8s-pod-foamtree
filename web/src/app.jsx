@@ -6,6 +6,7 @@ const { Scene3D } = window.k8sScene3D;
 const { workloadKey } = window.k8sWorkload;
 const { warnInfo, statusOf, WARNING_ORDER } = window.k8sNodeStatus;
 const { findingInfo, FINDING_ORDER, PodAuditBadge } = window.k8sPodAudit;
+const { QOS_INFO, QOS_ORDER, NEUTRAL_HUE } = window.k8sQos;
 
 // Per-node hue assignment — deterministic from index, evenly spaced around wheel.
 function nodeHue(idx, scheme) {
@@ -21,6 +22,11 @@ function nodeHue(idx, scheme) {
 const METRICS = [
   { id: "cpu", label: "CPU", icon: "cpu" },
   { id: "mem", label: "Memory", icon: "mem" },
+];
+
+const COLOR_MODES = [
+  { id: "node", label: "Node" },
+  { id: "qos", label: "QoS" },
 ];
 
 const VIEWS = [
@@ -158,6 +164,7 @@ function App() {
   const [zoom, setZoom] = useState(0.7);
   const [groupBy, setGroupBy] = useState("none");
   const [metric, setMetric] = useState("cpu");
+  const [colorBy, setColorBy] = useState("node");
   const [memUnit, setMemUnit] = useState("GiB");
   const [refreshInterval, setRefreshInterval] = useState(60);
   const [contexts, setContexts] = useState([]);
@@ -353,6 +360,19 @@ function App() {
       .sort((a, b) => FINDING_ORDER.indexOf(a.slug) - FINDING_ORDER.indexOf(b.slug));
   }, [nodes]);
 
+  // Every class gets a row, even at zero — "no BestEffort pods" is the answer
+  // an SRE is usually looking for. Pods with no reported class are not counted.
+  const qosBreakdown = useMemo(() => {
+    const counts = new Map(QOS_ORDER.map(q => [q, 0]));
+    for (const n of nodes) {
+      for (const p of n.pods) if (counts.has(p.qos)) counts.set(p.qos, counts.get(p.qos) + 1);
+    }
+    return QOS_ORDER.map(q => ({ qos: q, count: counts.get(q), ...QOS_INFO[q] }));
+  }, [nodes]);
+
+  // In QoS mode node chrome goes neutral, so only the pods carry colour.
+  const hueOf = idx => (colorBy === "qos" ? NEUTRAL_HUE : nodeHue(idx, tw.colorScheme));
+
   // Auto-set accent CSS var
   useEffect(() => {
     document.documentElement.style.setProperty("--accent", tw.accent);
@@ -376,6 +396,8 @@ function App() {
         nodeCount={nodes.length}
         health={health}
         audit={audit}
+        qosBreakdown={qosBreakdown}
+        colorBy={colorBy} setColorBy={setColorBy}
         query={query} setQuery={setQuery}
       />
 
@@ -409,7 +431,8 @@ function App() {
               match={match}
               zoom={zoom}
               groupBy={groupBy}
-              hueOf={idx => nodeHue(idx, tw.colorScheme)}
+              hueOf={hueOf}
+              colorBy={colorBy}
               memUnit={memUnit}
               fmtMem={fmtMem}
               onFocus={setFocused}
@@ -423,7 +446,8 @@ function App() {
               nodes={nodes}
               match={match}
               metric={metric}
-              colorScheme={tw.colorScheme}
+              hueOf={hueOf}
+              colorBy={colorBy}
               nodeStyle={tw.nodeStyle}
               density={tw.density}
               showLabels={tw.showLabels}
@@ -481,7 +505,7 @@ function Sidebar({
   open, onToggle, view, setView, zoom, setZoom, groupBy, setGroupBy, metric, setMetric, memUnit, setMemUnit,
   refreshInterval, setRefreshInterval,
   contexts, contextIdx, setContextIdx, doRefresh, refreshing, lastRefresh, nodeCount, health,
-  audit, query, setQuery
+  audit, qosBreakdown, colorBy, setColorBy, query, setQuery
 }) {
   const is3d = view === "3d";
   return (
@@ -557,6 +581,18 @@ function Sidebar({
       </div>
 
       <div className="sidebar-section">
+        <div className="section-label">Color by</div>
+        <div className="seg seg-2">
+          {COLOR_MODES.map(c => (
+            <button key={c.id} className={colorBy === c.id ? "seg-on" : ""}
+              onClick={() => setColorBy(c.id)}>
+              {c.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="sidebar-section">
         <div className="section-label">Context</div>
         <div className="ctx-list">
           {contexts
@@ -614,6 +650,28 @@ function Sidebar({
                 <span className="health-count">{h.count}</span>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Riskiest class first. The swatches double as the legend for Color by →
+          QoS, and a row toggles its qos: query, like the audit panel below. */}
+      {nodeCount > 0 && (
+        <div className="sidebar-section">
+          <div className="section-label">QoS &amp; Eviction Risk</div>
+          <div className="health-rows">
+            {qosBreakdown.map(q => {
+              const token = `qos:${q.qos}`;
+              const on = query.trim() === token;
+              return (
+                <button key={q.qos} className={`health-row audit-row ${on ? "audit-on" : ""}`}
+                  title={q.risk} onClick={() => setQuery(on ? "" : token)}>
+                  <span className={`audit-swatch sev-${q.sev}`} />
+                  <span className="health-name">{q.label}</span>
+                  <span className="health-count">{q.count}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
@@ -791,7 +849,7 @@ function Stat({ label, value, unit, pct }) {
 /* ─────────── Grid ─────────── */
 
 function TreemapGrid({
-  nodes, match, metric, colorScheme, nodeStyle, density, showLabels, onFocus,
+  nodes, match, metric, hueOf, colorBy, nodeStyle, density, showLabels, onFocus,
   highlight, highlightActive, onPodSelect, onPodHover,
 }) {
   const containerRef = useRef(null);
@@ -823,7 +881,7 @@ function TreemapGrid({
   return (
     <div className="grid" ref={containerRef}>
       {laid.map((it, i) => {
-        const hue = nodeHue(it.idx, colorScheme);
+        const hue = hueOf(it.idx);
         return (
           <div key={it.node.id} className="grid-slot"
             style={{
@@ -834,6 +892,7 @@ function TreemapGrid({
               match={match}
               metric={metric}
               hue={hue}
+              colorBy={colorBy}
               style={nodeStyle}
               density={density}
               showLabels={showLabels}

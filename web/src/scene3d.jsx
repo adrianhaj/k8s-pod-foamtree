@@ -11,6 +11,7 @@
 const { workloadKey } = window.k8sWorkload;
 const { findingInfo } = window.k8sPodAudit;
 const { worstSeverity } = window.k8sNodeStatus;
+const { qosHue } = window.k8sQos;
 
 const PLATE = 160;
 const PLATE_GAP = 28;
@@ -216,7 +217,7 @@ function labelSprite(T, { name, util, hue, sev }, height) {
 }
 
 function Scene3D({
-  nodes, match, zoom, groupBy, hueOf, memUnit, fmtMem, onFocus,
+  nodes, match, zoom, groupBy, hueOf, colorBy, memUnit, fmtMem, onFocus,
   highlight, highlightActive, onPodSelect, onPodHover,
 }) {
   const hostRef = React.useRef(null);
@@ -477,14 +478,15 @@ function Scene3D({
       if (!w.meshes) return;
       const { T } = w, c = new T.Color(), m = new T.Matrix4();
       const set = (mesh, i, rgb) => mesh.setColorAt(i, c.setRGB(rgb[0], rgb[1], rgb[2], T.SRGBColorSpace));
-      // A pod's colours depend only on its node hue and one of six filter
-      // states, so compute each combination once, not once per pod.
+      // A pod's colours depend only on its plate hue, its own hue and one of
+      // six filter states, so compute each combination once, not once per pod.
       const faces = new Map();
       w.cubes.forEach((cube, i) => {
-        const h = hueOf(cube.nodeIdx), f = podFilter(cube, look), key = `${h}|${f}`;
+        const h = hueOf(cube.nodeIdx), ph = colorBy === "qos" ? qosHue(cube.pod.qos) : h;
+        const f = podFilter(cube, look), key = `${h}|${ph}|${f}`;
         if (!faces.has(key)) {
           const under = plateSurface(w.bg, h);
-          faces.set(key, ["top", "x", "z"].map(face => mix(under, cssFilter(hsl(h, ...FACES[face]), f[0], f[1]), f[2])));
+          faces.set(key, ["top", "x", "z"].map(face => mix(under, cssFilter(hsl(ph, ...FACES[face]), f[0], f[1]), f[2])));
         }
         const [t, fx, fz] = faces.get(key);
         set(w.meshes.top, i, t);
@@ -511,7 +513,7 @@ function Scene3D({
     };
     w.recolor();
     w.render();
-  }, [nodes, groupBy, match, highlight, highlightActive, hueOf]);
+  }, [nodes, groupBy, match, highlight, highlightActive, hueOf, colorBy]);
 
   React.useEffect(() => {
     const w = world.current;
@@ -531,14 +533,14 @@ function Scene3D({
   return (
     <div className="scene-3d">
       <div className="scene-gl" ref={hostRef} />
-      <SceneLegend />
+      <SceneLegend colorBy={colorBy} />
       <SceneTooltip tip={tip} memUnit={memUnit} fmtMem={fmtMem} />
     </div>
   );
 }
 
 // The CSS view's annotated reference cube, plus a line for the limit shell.
-function SceneLegend() {
+function SceneLegend({ colorBy }) {
   return (
     <div className="scene-legend">
       <svg viewBox="0 0 168 128" width="150" height="114" fill="none">
@@ -561,7 +563,7 @@ function SceneLegend() {
         <div>Width × depth → CPU request</div>
         <div>Height → Memory request</div>
         <div>Glass shell → limits, on axes that set one</div>
-        <div className="legend-foot">One cube per pod · color = node · drag to orbit</div>
+        <div className="legend-foot">One cube per pod · color = {colorBy === "qos" ? "QoS class" : "node"} · drag to orbit</div>
       </div>
     </div>
   );
@@ -593,7 +595,9 @@ function SceneTooltip({ tip, memUnit, fmtMem }) {
         <span>{fmtMem(p.mem, memUnit)}</span> {memUnit}
         {p.memLimit != null && <> · limit {fmtMem(p.memLimit, memUnit)}</>}
       </div>
-      <div className="cube-tip-foot">{p.namespace} · {p.containers.length} container{p.containers.length === 1 ? "" : "s"}</div>
+      <div className="cube-tip-foot">
+        {p.namespace} · {p.containers.length} container{p.containers.length === 1 ? "" : "s"}{p.qos && ` · ${p.qos}`}
+      </div>
       {p.findings.length > 0 && (
         <div className="cube-tip-audit">
           {p.findings.map(f => <div key={f} className={`sev-${findingInfo(f).sev}`}>{findingInfo(f).label}</div>)}
