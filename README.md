@@ -206,6 +206,21 @@ make run ARGS="--synthetic 400x50"   # 20 000 made-up pods, no cluster needed
 make build                    # bin/k8sfoams
 ```
 
+## Scheduling simulators
+
+Read-only dry runs of the scheduler's filters on the cached cluster: nothing
+is created, evicted or cordoned.
+
+- **Can I fit this pod?** (sidebar): CPU and memory requests, a node selector
+  (`disk=ssd,zone=a`) and tolerations (`spot=true:NoSchedule,gpu`). Nodes that
+  cannot take the pod are dimmed; the node overlay says why, e.g.
+  `insufficient cpu: requires 4000m, available 1200m`. `GET /api/fit?cpu=&memory=&nodeSelector=&tolerations=`.
+
+Modelled: allocatable CPU, memory and pod count, cordons, `NoSchedule` /
+`NoExecute` taints, node selectors and required node affinity. Not modelled:
+pod (anti-)affinity, topology spread, volume zones, host ports, extended
+resources and preemption.
+
 ## Run in a cluster
 
 ```bash

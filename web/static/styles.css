@@ -1308,3 +1308,16 @@ input { font: inherit; color: inherit; background: none; border: none; outline: 
 .scene-gl canvas { display: block; cursor: grab; }
 .scene-gl canvas:active { cursor: grabbing; }
 .scene-nogl { display: grid; place-items: center; padding: 24px; color: var(--text-dim, #9aa3b8); text-align: center; }
+
+/* Scheduling simulators — presentational only, the redesign restyles them. */
+.sim-form { display: flex; flex-direction: column; gap: 8px; }
+.sim-field { display: flex; flex-direction: column; gap: 3px; font-size: 10px; color: var(--text-soft); }
+.sim-field input {
+  height: 28px; padding: 0 8px;
+  background: var(--bg-3); border: 1px solid var(--line); border-radius: 6px;
+  font-family: var(--font-mono); font-size: 11px; color: var(--text);
+}
+.sim-field input:focus { border-color: var(--accent); }
+.sim-field input::placeholder { color: var(--text-soft); }
+.sim-error { font-family: var(--font-mono); font-size: 11px; color: var(--danger); }
+.sim-ok { color: var(--ok); }
