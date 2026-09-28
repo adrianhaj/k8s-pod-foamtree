@@ -76,3 +76,35 @@ func TestSyntheticFlag(t *testing.T) {
 		t.Fatal("bad --synthetic accepted")
 	}
 }
+
+// The simulators need the constraints a real cluster has, or every drain fits.
+func TestSyntheticSchedulingConstraints(t *testing.T) {
+	s, _ := parseSynthetic("30x20")
+	nodes, pods, _ := s.Snapshot(context.Background(), "")
+	for _, n := range nodes {
+		if n.AllocCPU == 0 || n.AllocCPU >= n.CPU || n.AllocPods != 110 || n.Labels["karpenter.sh/nodepool"] != n.Pool {
+			t.Fatalf("node %+v", n)
+		}
+	}
+	pool := map[string]string{}
+	for _, n := range nodes {
+		pool[n.Name] = n.Pool
+	}
+	kinds := map[string]int{}
+	for _, p := range pods {
+		kinds[p.Controller]++
+		switch pool[p.NodeName] {
+		case "spot":
+			if len(p.Tolerations) != 1 {
+				t.Fatalf("pod on a spot node without a toleration: %+v", p)
+			}
+		case "memory":
+			if p.NodeSelector["karpenter.sh/nodepool"] != "memory" {
+				t.Fatalf("pod on a memory node without a selector: %+v", p)
+			}
+		}
+	}
+	if kinds["DaemonSet"] != 30 || kinds[""] == 0 || kinds["ReplicaSet"] == 0 {
+		t.Fatalf("controllers: %v", kinds)
+	}
+}
