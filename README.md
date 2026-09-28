@@ -11,7 +11,7 @@ It visualizes **resource requests** — what the scheduler reserves — not live
 ## How it works
 
 1. Lists nodes (`status.capacity`) and all non-terminated pods. Pods in `Succeeded`/`Failed` are excluded — they still report requests via the API but no longer reserve anything.
-2. Normalizes CPU to millicores and memory with `bitmath`. A pod's **effective request** is `max(sum(regular containers), max(init containers))` — init containers run sequentially, so they are maxed, not summed. This is what the scheduler actually reserves.
+2. Normalizes CPU to millicores and memory to decimal kB with Kubernetes' own quantity parser. A pod's **effective request** is the scheduler's formula (`k8s.io/component-helpers` `PodRequests`): regular containers and native sidecars (init containers with `restartPolicy: Always`) are summed, plain init containers run one at a time so the largest of them is maxed against that sum, and pod overhead and pod-level resources are added.
 3. Nests the result node → pod → container and adds a synthetic `empty` child per node for free capacity, then serves it as JSON.
 4. A React single-page app (no build step — React and Babel come from a CDN) fetches CPU and memory in parallel, merges them, and renders. The view auto-refreshes every 60 seconds by default.
 
@@ -188,80 +188,10 @@ Focusing the input opens a popover with the same token list; it is replaced by t
 | `GET /resources/cpu`, `GET /resources/memory` | treemap JSON; optional `?context=<name>`. CPU in millicores, memory in decimal kB. Each node group also carries `unschedulable`, `taints`, `conditions` and a render-ready `warnings` list — see [Node health](#node-health). Each pod group carries a `findings` list — see [Audit & hygiene](#audit--hygiene) |
 | `GET /contexts` | `[{"context": "...", "active": true}]` |
 
-## Installation
-
-### Prerequisites
-Install [uv](https://docs.astral.sh/uv/) package manager:
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-### Install from source
-```bash
-# Install dependencies and the package in development mode
-make restore_dev
-
-# Or install without dev dependencies
-make restore
-```
-
-### Install via PyPi
-```bash
-pip install k8sfoams
-# or with uv
-uv pip install k8sfoams
-```
-
-## Run k8s-pod-foamtree
-After installation, run the application:
-```bash
-# Using make
-make run
-
-# Or directly
-k8sfoams
-
-# Or with uv run
-uv run k8sfoams
-```
-
-## Command lines arguments
-- host: host IP address on which server listen, default is **127.0.0.1**
-- port: port number on which server listen, default is **8080**
-- d: turn on **debug** mode when server starts
-
-Example:
-```bash
-k8sfoams --host 0.0.0.0 --port 8080 -d
-```
-
 ## Development
 
-### Running tests
-```bash
-# Run all tests (type checking, linting, security, unit tests)
-make tests
+Requires Go 1.27.
 
-# Run individual test suites
-make unit_tests
-make static_code_analysis
-make check_types
-make bandit
-```
-
-### CI/CD targets
-For CI/CD environments (GitHub Actions, etc.), use these targets that work with system Python:
 ```bash
-make restore_ci   # Install dependencies with --system flag
-make tests_ci     # Run all tests without uv run prefix
-```
-
-### Building the package
-```bash
-make build
-```
-
-### Clean build artifacts
-```bash
-make clean
+go test ./...
 ```
