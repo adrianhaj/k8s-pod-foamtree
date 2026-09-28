@@ -255,3 +255,32 @@ func TestFromNodeTopology(t *testing.T) {
 		t.Fatalf("karpenter pool wins, missing zone stays empty: %+v", n)
 	}
 }
+
+func TestFromPodSchedulingConstraints(t *testing.T) {
+	yes := true
+	affinity := &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{}}}
+	raw := pod([]corev1.Container{ctr("app", "100m", "")})
+	raw.OwnerReferences = []metav1.OwnerReference{{Kind: "Workflow", Name: "w"}, {Kind: "ReplicaSet", Name: "web-5d8f", Controller: &yes}}
+	raw.Spec.NodeSelector = map[string]string{"disk": "ssd"}
+	raw.Spec.Affinity = affinity
+	raw.Spec.Tolerations = []corev1.Toleration{{Key: "spot", Operator: corev1.TolerationOpExists}}
+	p := FromPod(raw)
+	if p.Controller != "ReplicaSet" || p.NodeSelector["disk"] != "ssd" || p.Affinity != affinity || len(p.Tolerations) != 1 {
+		t.Fatalf("got %+v", p)
+	}
+	if bare := FromPod(pod(nil)); bare.Controller != "" {
+		t.Fatalf("a pod without a controller must say so: %q", bare.Controller)
+	}
+}
+
+func TestFromNodeLabelsAndAllocatable(t *testing.T) {
+	raw := node()
+	raw.Labels = map[string]string{"disk": "ssd"}
+	raw.Status.Allocatable = corev1.ResourceList{
+		corev1.ResourceCPU: resource.MustParse("1900m"), corev1.ResourceMemory: resource.MustParse("900M"), corev1.ResourcePods: resource.MustParse("110"),
+	}
+	n := FromNode(raw)
+	if n.Labels["disk"] != "ssd" || n.AllocCPU != 1900 || n.AllocMemory != 900_000 || n.AllocPods != 110 {
+		t.Fatalf("got %+v", n)
+	}
+}
