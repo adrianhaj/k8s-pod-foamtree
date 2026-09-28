@@ -43,7 +43,7 @@ func TestRoutes(t *testing.T) {
 		nodes: []foam.Node{{Name: "minikube", CPU: 2000, Memory: 1_000_000}},
 		pods:  []foam.Pod{{Name: "etcd", NodeName: "minikube", CPU: 150, Containers: []foam.Container{{Name: "etcd", CPU: 150}}}},
 	}
-	h := newHandler(src, static)
+	h := newHandler(src, static, nil)
 	cases := []struct {
 		target string
 		code   int
@@ -54,6 +54,7 @@ func TestRoutes(t *testing.T) {
 		{"/resources/cpu", 200, `"label":"minikube","weight":2000`},
 		{"/resources/MEMORY", 200, `"label":"minikube","weight":1000000`},
 		{"/resources/disk", 400, "Resource type: disk is not supported. Supported types are: [cpu, memory]"},
+		{"/api/me", 200, `{"auth":"none"}`},
 		{"/", 200, "<title>k8sfoams</title>"},
 	}
 	for _, tc := range cases {
@@ -69,7 +70,7 @@ func TestRoutes(t *testing.T) {
 
 func TestResourcesPassesContextAndMapsErrors(t *testing.T) {
 	src := &fakeSource{}
-	h := newHandler(src, static)
+	h := newHandler(src, static, nil)
 	if get(h, "/resources/cpu?context=kind-a"); src.asked != "kind-a" {
 		t.Fatalf("context not forwarded: %q", src.asked)
 	}
@@ -91,12 +92,26 @@ func TestFlags(t *testing.T) {
 		{nil, true},
 		{[]string{"--host", "0.0.0.0"}, false},
 		{[]string{"--host", "0.0.0.0", "--allow-unauthenticated"}, true},
+		{[]string{"--host", "0.0.0.0", "--auth", "oidc"}, true},
 		{[]string{"--host", "::1"}, true},
-		{[]string{"--port", "x"}, false},
+		{[]string{"--auth", "basic"}, false},
 	}
 	for _, tc := range cases {
 		if _, err := parseFlags(tc.args); (err == nil) != tc.ok {
 			t.Errorf("%v: err=%v", tc.args, err)
 		}
+	}
+	o, _ := parseFlags([]string{"--auth", "oidc", "--oidc-allowed-emails", "a@x.com,*@y.com"})
+	if fmt.Sprint(o.oidc.AllowedEmails, o.oidc.Scopes) != "[a@x.com *@y.com] [openid email profile]" {
+		t.Fatalf("lists: %v %v", o.oidc.AllowedEmails, o.oidc.Scopes)
+	}
+}
+
+func TestSessionKey(t *testing.T) {
+	if k, err := sessionKey(""); err != nil || len(k) != 32 {
+		t.Fatalf("random key: %d %v", len(k), err)
+	}
+	if _, err := sessionKey("c2hvcnQ="); err == nil {
+		t.Fatal("short key accepted")
 	}
 }

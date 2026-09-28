@@ -187,6 +187,8 @@ Focusing the input opens a popover with the same token list; it is replaced by t
 | `GET /healthcheck` | `{"status": "ok"}` |
 | `GET /resources/cpu`, `GET /resources/memory` | treemap JSON; optional `?context=<name>`. CPU in millicores, memory in decimal kB. Each node group also carries `unschedulable`, `taints`, `conditions` and a render-ready `warnings` list — see [Node health](#node-health). Each pod group carries a `findings` list — see [Audit & hygiene](#audit--hygiene) |
 | `GET /contexts` | `[{"context": "...", "active": true}]` |
+| `GET /api/me` | `{"auth": "none"}`, or `{"auth": "oidc", "email": "...", "name": "..."}` for the signed-in user |
+| `GET /auth/login`, `GET /auth/callback`, `POST /auth/logout` | OIDC sign-in and sign-out (only with `--auth=oidc`) |
 
 An unknown `context` returns 400; an unreachable cluster or rejected credentials return 503 with the error text.
 
@@ -206,7 +208,15 @@ make build                    # bin/k8sfoams
 | --- | --- | --- |
 | `--host`, `--port` | `127.0.0.1`, `8080` | listen address |
 | `--in-cluster` | off | use the pod's service account; offers one context, `in-cluster` |
-| `--allow-unauthenticated` | off | required to listen on a non-loopback host |
+| `--auth` | `none` | `none` or `oidc` |
+| `--allow-unauthenticated` | off | required for `--auth=none` on a non-loopback host |
+| `--oidc-issuer`, `--oidc-client-id`, `--oidc-redirect-url` | | required with `--auth=oidc` |
+| `--oidc-allowed-emails` | | comma-separated; globs like `*@example.com` |
+| `--oidc-allowed-groups` | | comma-separated; at least one allow list is required |
+| `--oidc-groups-claim` | `groups` | ID-token claim with group names |
+| `--oidc-scopes` | `openid,email,profile` | add `groups` for Dex/Keycloak |
+
+Secrets come from the environment only: `K8SFOAMS_OIDC_CLIENT_SECRET`, `K8SFOAMS_SESSION_KEY` (32 bytes, base64; unset means a random key, so sessions end on restart).
 
 ## Development
 
