@@ -240,8 +240,17 @@ func slimNode(obj any) (any, error) {
 	for _, c := range n.Status.Conditions {
 		conds = append(conds, corev1.NodeCondition{Type: c.Type, Status: c.Status})
 	}
+	var labels map[string]string
+	for _, k := range foam.TopologyLabels {
+		if v, ok := n.Labels[k]; ok {
+			if labels == nil {
+				labels = map[string]string{}
+			}
+			labels[k] = v
+		}
+	}
 	return &corev1.Node{
-		ObjectMeta: metav1.ObjectMeta{Name: n.Name, UID: n.UID, ResourceVersion: n.ResourceVersion},
+		ObjectMeta: metav1.ObjectMeta{Name: n.Name, UID: n.UID, ResourceVersion: n.ResourceVersion, Labels: labels},
 		Spec:       corev1.NodeSpec{Unschedulable: n.Spec.Unschedulable, Taints: n.Spec.Taints},
 		Status:     corev1.NodeStatus{Capacity: n.Status.Capacity, Conditions: conds},
 	}, nil

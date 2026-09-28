@@ -170,3 +170,15 @@ func TestSlimPodKeepsOnlyWhatTheDashboardReads(t *testing.T) {
 		t.Fatalf("dropped a field the dashboard needs: %+v", p)
 	}
 }
+
+func TestSlimNodeKeepsOnlyTopologyLabels(t *testing.T) {
+	in := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n", Labels: map[string]string{
+		"topology.kubernetes.io/zone": "eu-west-1a", "karpenter.sh/nodepool": "spot",
+		"kubernetes.io/hostname": "n", "beta.kubernetes.io/arch": "arm64",
+	}}}
+	out, _ := slimNode(in)
+	want := map[string]string{"topology.kubernetes.io/zone": "eu-west-1a", "karpenter.sh/nodepool": "spot"}
+	if got := out.(*corev1.Node).Labels; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v", got)
+	}
+}
