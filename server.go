@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -64,6 +65,22 @@ func newHandler(src source, static fs.FS, a *auth.Auth) http.Handler {
 		if nodes, pods, ok := snapshot(w, r, src); ok {
 			writeJSON(w, foam.Fit(nodes, pods, p))
 		}
+	})
+	app.HandleFunc("GET /api/drain", func(w http.ResponseWriter, r *http.Request) {
+		name := r.URL.Query().Get("node")
+		if len(name) > maxFitFieldBytes {
+			http.Error(w, "node must be at most 4096 bytes", http.StatusBadRequest)
+			return
+		}
+		nodes, pods, ok := snapshot(w, r, src)
+		if !ok {
+			return
+		}
+		if d, ok := foam.Drain(nodes, pods, name); ok {
+			writeJSON(w, d)
+			return
+		}
+		http.Error(w, "no node "+strconv.Quote(name), http.StatusNotFound)
 	})
 	app.HandleFunc("GET /api/me", func(w http.ResponseWriter, r *http.Request) {
 		if u, ok := auth.UserFrom(r.Context()); ok {

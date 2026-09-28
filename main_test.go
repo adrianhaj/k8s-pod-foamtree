@@ -146,3 +146,30 @@ func TestFitRouteRejectsOversizedFreeText(t *testing.T) {
 		t.Fatalf("oversized nodeSelector: %d", w.Code)
 	}
 }
+
+func TestDrainRoute(t *testing.T) {
+	src := &fakeSource{
+		nodes: []foam.Node{
+			{Name: "a", AllocCPU: 4000, AllocMemory: 8_000_000, AllocPods: 110},
+			{Name: "b", AllocCPU: 4000, AllocMemory: 8_000_000, AllocPods: 110},
+		},
+		pods: []foam.Pod{{Name: "web", Namespace: "ns", NodeName: "a", Controller: "ReplicaSet", CPU: 100}},
+	}
+	h := newHandler(src, static, nil)
+	w := get(h, "/api/drain?context=kind-a&node=a")
+	want := `{"moved":[{"pod":"ns/web","node":"b"}],"pending":[],"ignored":[],"unmanaged":[]}` + "\n"
+	if w.Code != 200 || w.Body.String() != want || src.asked != "kind-a" {
+		t.Fatalf("%d %s (context %q)", w.Code, w.Body, src.asked)
+	}
+	if w := get(h, "/api/drain?node=gone"); w.Code != 404 {
+		t.Fatalf("unknown node: %d %s", w.Code, w.Body)
+	}
+}
+
+func TestDrainRouteRejectsOversizedNode(t *testing.T) {
+	h := newHandler(&fakeSource{}, static, nil)
+	big := strings.Repeat("a", 4097)
+	if w := get(h, "/api/drain?node="+big); w.Code != 400 {
+		t.Fatalf("oversized node: %d", w.Code)
+	}
+}
