@@ -255,3 +255,31 @@ func TestFromNodeTopology(t *testing.T) {
 		t.Fatalf("karpenter pool wins, missing zone stays empty: %+v", n)
 	}
 }
+
+func TestFromNodeCapacityType(t *testing.T) {
+	cases := []struct {
+		labels map[string]string
+		want   string
+	}{
+		{map[string]string{"karpenter.sh/capacity-type": "spot"}, "spot"},
+		{map[string]string{"karpenter.sh/capacity-type": "on-demand"}, "on-demand"},
+		{map[string]string{"eks.amazonaws.com/capacityType": "SPOT"}, "spot"},
+		{map[string]string{"eks.amazonaws.com/capacityType": "ON_DEMAND"}, "on-demand"},
+		{map[string]string{"cloud.google.com/gke-spot": "true"}, "spot"},
+		{map[string]string{"cloud.google.com/gke-provisioning": "spot"}, "spot"},
+		{map[string]string{"kubernetes.azure.com/scalesetpriority": "spot"}, "spot"},
+		{map[string]string{"kubernetes.azure.com/scalesetpriority": "regular"}, "on-demand"},
+		// Karpenter wins, like the pool labels: it also runs on EKS nodes.
+		{map[string]string{"karpenter.sh/capacity-type": "on-demand", "eks.amazonaws.com/capacityType": "SPOT"}, "on-demand"},
+		{map[string]string{"karpenter.sh/capacity-type": "reserved"}, ""},
+		{map[string]string{"cloud.google.com/gke-provisioning": "standard"}, ""},
+		{nil, ""},
+	}
+	for _, tc := range cases {
+		raw := node()
+		raw.Labels = tc.labels
+		if got := FromNode(raw).CapacityType; got != tc.want {
+			t.Errorf("%v: got %q, want %q", tc.labels, got, tc.want)
+		}
+	}
+}

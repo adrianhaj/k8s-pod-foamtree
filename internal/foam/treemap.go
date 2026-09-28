@@ -61,6 +61,7 @@ type NodeGroup struct {
 	Region        string          `json:"region"`
 	InstanceType  string          `json:"instanceType"`
 	Pool          string          `json:"pool"`
+	CapacityType  string          `json:"capacityType"`
 }
 
 type PodGroup struct {
@@ -122,6 +123,7 @@ func Treemap(nodes []Node, pods []Pod, axis Axis) Tree {
 			Region:        n.Region,
 			InstanceType:  n.InstanceType,
 			Pool:          n.Pool,
+			CapacityType:  n.CapacityType,
 		})
 	}
 	return tree

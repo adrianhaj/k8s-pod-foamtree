@@ -174,12 +174,12 @@ func TestTreemapPodLimitPerAxis(t *testing.T) {
 
 func TestTreemapNodeTopology(t *testing.T) {
 	n := minikube
-	n.Zone, n.Region, n.InstanceType, n.Pool = "eu-west-1a", "eu-west-1", "m7g.xlarge", "general"
+	n.Zone, n.Region, n.InstanceType, n.Pool, n.CapacityType = "eu-west-1a", "eu-west-1", "m7g.xlarge", "general", "spot"
 	g := render(t, []Node{n, {Name: "bare"}}, nil, CPU)
-	if fmt.Sprintf("%v %v %v %v", g[1]["zone"], g[1]["region"], g[1]["instanceType"], g[1]["pool"]) != "eu-west-1a eu-west-1 m7g.xlarge general" {
+	if fmt.Sprintf("%v %v %v %v %v", g[1]["zone"], g[1]["region"], g[1]["instanceType"], g[1]["pool"], g[1]["capacityType"]) != "eu-west-1a eu-west-1 m7g.xlarge general spot" {
 		t.Fatalf("got %v", g[1])
 	}
-	if g[0]["zone"] != "" || g[0]["pool"] != "" {
+	if g[0]["zone"] != "" || g[0]["pool"] != "" || g[0]["capacityType"] != "" {
 		t.Fatalf("unlabelled node must send empty strings: %v", g[0])
 	}
 }
