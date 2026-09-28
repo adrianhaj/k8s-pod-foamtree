@@ -34,9 +34,23 @@ A WebGL (Three.js) scene: one plate per node, one cube per pod. A cube encodes b
 
 Both dimensions are square-root scaled, so a 10× larger pod is not 10× wider. Because a cube already shows both resources, the CPU/Memory picker is disabled in 3D and a **Zoom** slider takes its place. Drag to orbit, scroll to zoom; hover a pod for its requests and limits, click it to pin its workload, click a plate to open the node.
 
-**Group by** None / Zone / Pool splits the plates into labelled blocks by `topology.kubernetes.io/zone` or node pool (Karpenter, EKS, GKE and AKS pool labels). On refresh, new pods grow in and removed ones shrink out; the camera stays where you left it unless nodes join or leave.
+**Group by** splits the plates into framed blocks — see [Topology](#topology). On refresh, new pods grow in and removed ones shrink out; the camera stays where you left it unless nodes join or leave.
 
 Switch views with the sidebar *View* control or the `2D`/`3D` pill in the header. Frames render only when something changes, so an idle dashboard costs nothing. Without WebGL, a notice points to the 2D map.
+
+## Topology
+
+**Group by** in the sidebar — None, Zone, Region, Pool, Type or Capacity — frames the nodes of each availability zone, region, node pool, instance type or capacity type (spot vs on-demand) in the 3D scene as a block of plates on a shared floor. Each group's label reads its name, node count and the requested share of its capacity on the tighter resource, so a zone or pool running hotter than its siblings stands out.
+
+| Group by | Node label |
+| --- | --- |
+| Zone | `topology.kubernetes.io/zone` |
+| Region | `topology.kubernetes.io/region` |
+| Pool | first of `karpenter.sh/nodepool`, `eks.amazonaws.com/nodegroup`, `cloud.google.com/gke-nodepool`, `kubernetes.azure.com/agentpool` |
+| Type | `node.kubernetes.io/instance-type` |
+| Capacity | `spot` or `on-demand`, from the first of `karpenter.sh/capacity-type`, `eks.amazonaws.com/capacityType` (`SPOT`/`ON_DEMAND`), `cloud.google.com/gke-spot=true` or `cloud.google.com/gke-provisioning=spot`, `kubernetes.azure.com/scalesetpriority` (`spot`/`regular`) |
+
+A node without the label goes to its own group, `no zone`, `no pool`, and so on.
 
 ## Controls
 

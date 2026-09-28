@@ -7,6 +7,7 @@ const { workloadKey } = window.k8sWorkload;
 const { warnInfo, statusOf, WARNING_ORDER } = window.k8sNodeStatus;
 const { findingInfo, FINDING_ORDER, PodAuditBadge } = window.k8sPodAudit;
 const { QOS_INFO, QOS_ORDER, NEUTRAL_HUE } = window.k8sQos;
+const { GROUP_BY } = window.k8sTopology;
 
 // Per-node hue assignment — deterministic from index, evenly spaced around wheel.
 function nodeHue(idx, scheme) {
@@ -139,6 +140,7 @@ function mergeResources(cpuData, memData) {
       zone: cg.zone || "",
       pool: cg.pool || "",
       instanceType: cg.instanceType || "",
+      capacityType: cg.capacityType || "",
       cpuCapacity: cg.weight || 0,
       memCapacity: memCapacity,
       cpuUsed,
@@ -555,8 +557,8 @@ function Sidebar({
         <div className="sidebar-section">
           <div className="section-label">Group by</div>
           <div className="seg seg-3">
-            {[["none", "None"], ["zone", "Zone"], ["pool", "Pool"]].map(([id, label]) => (
-              <button key={id} className={groupBy === id ? "seg-on" : ""} onClick={() => setGroupBy(id)}>{label}</button>
+            {GROUP_BY.map(g => (
+              <button key={g.id} className={groupBy === g.id ? "seg-on" : ""} onClick={() => setGroupBy(g.id)}>{g.label}</button>
             ))}
           </div>
         </div>

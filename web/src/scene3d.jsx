@@ -12,10 +12,13 @@ const { workloadKey } = window.k8sWorkload;
 const { findingInfo } = window.k8sPodAudit;
 const { worstSeverity } = window.k8sNodeStatus;
 const { qosHue } = window.k8sQos;
+const { groupNodes, groupUsage } = window.k8sTopology;
 
 const PLATE = 160;
 const PLATE_GAP = 28;
 const GROUP_GAP = 160;
+// Floor frame around a group, beyond its outer plates.
+const FRAME_PAD = 24;
 const GROW_MS = 500;
 
 const clamp = (lo, v, hi) => Math.max(lo, Math.min(hi, v));
@@ -92,18 +95,12 @@ function webglAvailable() {
   }
 }
 
-// Plates on a grid per group (zone, pool, or one group), pods on a grid inside
-// each plate, biggest footprint first. Pure: positions only, no three.js.
+// Plates on a grid per group (topology.jsx), pods on a grid inside each
+// plate, biggest footprint first. Pure: positions only, no three.js.
 function layout(nodes, groupBy) {
-  const groups = new Map();
-  nodes.forEach((node, idx) => {
-    const key = groupBy === "none" ? "" : node[groupBy] || `no ${groupBy}`;
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push({ node, idx });
-  });
-  const plates = [], cubes = [], labels = [];
+  const plates = [], cubes = [], labels = [], frames = [];
   let x0 = 0, maxZ = 0;
-  for (const [key, members] of [...groups].sort(([a], [b]) => a.localeCompare(b))) {
+  for (const { key, members } of groupNodes(nodes, groupBy)) {
     const cols = Math.ceil(Math.sqrt(members.length));
     members.forEach(({ node, idx }, i) => {
       const x = x0 + (i % cols) * (PLATE + PLATE_GAP);
@@ -128,11 +125,21 @@ function layout(nodes, groupBy) {
       });
     });
     const blockW = Math.min(cols, members.length) * (PLATE + PLATE_GAP) - PLATE_GAP;
-    if (key) labels.push({ text: key, x: x0 + blockW / 2 - PLATE / 2, z: -PLATE / 2 - 60 });
+    const blockD = Math.floor((members.length - 1) / cols) * (PLATE + PLATE_GAP) + PLATE;
+    if (key) {
+      // Like a plate label, but for the group: its share of requested capacity
+      // on the tighter resource, so an imbalanced zone or pool stands out.
+      const u = groupUsage(members), n = members.length;
+      labels.push({
+        text: `${key} · ${n} node${n === 1 ? "" : "s"}`, util: Math.max(u.cpu, u.mem),
+        x: x0 + blockW / 2 - PLATE / 2, z: -PLATE / 2 - 60,
+      });
+      frames.push({ x: x0 + blockW / 2 - PLATE / 2, z: blockD / 2 - PLATE / 2, w: blockW + FRAME_PAD * 2, d: blockD + FRAME_PAD * 2 });
+    }
     x0 += cols * (PLATE + PLATE_GAP) + GROUP_GAP;
   }
   const width = Math.max(PLATE, x0 - GROUP_GAP - PLATE_GAP);
-  return { plates, cubes, labels, center: { x: width / 2 - PLATE / 2, z: maxZ / 2 }, size: Math.hypot(width, maxZ + PLATE) };
+  return { plates, cubes, labels, frames, center: { x: width / 2 - PLATE / 2, z: maxZ / 2 }, size: Math.hypot(width, maxZ + PLATE) };
 }
 
 // Some faces of a unit box standing on y=0, as their own geometry, so each
@@ -376,7 +383,18 @@ function Scene3D({
     const hatches = new T.InstancedMesh(flat(), overlay(w.hatch), np);
     for (const mesh of [top, x, z, shells]) mesh.count = cubes.length;
     for (const mesh of [rims, plates, grids, hatches]) mesh.count = next.plates.length;
+    // Group frames: a --bg-2 floor with a --line-2 rim, below the plates.
+    const nf = Math.max(1, next.frames.length);
+    const frameRims = new T.InstancedMesh(new T.BoxGeometry(1, 1, 1), new T.MeshBasicMaterial({ color: token("--line-2", "#2b3147") }), nf);
+    const frameFloors = new T.InstancedMesh(new T.BoxGeometry(1, 1, 1), new T.MeshBasicMaterial({ color: token("--bg-2", "#0d0f15") }), nf);
+    frameRims.count = frameFloors.count = next.frames.length;
     const m = new T.Matrix4();
+    next.frames.forEach((f, i) => {
+      m.makeScale(f.w + 6, 2, f.d + 6).setPosition(f.x, -4.2, f.z);
+      frameRims.setMatrixAt(i, m);
+      m.makeScale(f.w, 2, f.d).setPosition(f.x, -4, f.z);
+      frameFloors.setMatrixAt(i, m);
+    });
     next.plates.forEach((p, i) => {
       // The 1px CSS border as a slightly larger, lower slab around the plate.
       m.makeScale(PLATE + 2, 2, PLATE + 2).setPosition(p.x, -1.1, p.z);
@@ -384,7 +402,7 @@ function Scene3D({
       m.makeScale(PLATE, 2, PLATE).setPosition(p.x, -1, p.z);
       plates.setMatrixAt(i, m);
     });
-    root.add(rims, plates, grids, hatches, z, x, top, shells);
+    root.add(frameRims, frameFloors, rims, plates, grids, hatches, z, x, top, shells);
 
     const labels = [];
     for (const p of next.plates) {
@@ -397,7 +415,7 @@ function Scene3D({
       labels.push(s);
     }
     for (const g of next.labels) {
-      const s = labelSprite(T, { name: g.text }, 26);
+      const s = labelSprite(T, { name: g.text, util: g.util }, 26);
       s.position.set(g.x, 10, g.z);
       labels.push(s);
     }
@@ -437,7 +455,7 @@ function Scene3D({
 
     Object.assign(w, { cubes, plates: next.plates, labels, meshes: { top, x, z, shells, rims, plates, grids, hatches } });
     w.dispose = () => {
-      const meshes = [rims, plates, grids, hatches, z, x, top, shells];
+      const meshes = [frameRims, frameFloors, rims, plates, grids, hatches, z, x, top, shells];
       root.remove(...meshes, ...labels);
       for (const o of meshes) { o.geometry.dispose(); o.material.dispose(); o.dispose(); }
       for (const s of labels) { s.material.map.dispose(); s.material.dispose(); }
