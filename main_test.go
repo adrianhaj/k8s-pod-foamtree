@@ -135,3 +135,14 @@ func TestFitRoute(t *testing.T) {
 		t.Fatalf("cluster error: %d", w.Code)
 	}
 }
+
+func TestFitRouteRejectsOversizedFreeText(t *testing.T) {
+	h := newHandler(&fakeSource{}, static, nil)
+	big := strings.Repeat("a", 4097)
+	if w := get(h, "/api/fit?tolerations="+big); w.Code != 400 {
+		t.Fatalf("oversized tolerations: %d", w.Code)
+	}
+	if w := get(h, "/api/fit?nodeSelector="+big); w.Code != 400 {
+		t.Fatalf("oversized nodeSelector: %d", w.Code)
+	}
+}

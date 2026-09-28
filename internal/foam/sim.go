@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 
@@ -47,21 +48,28 @@ func noScheduleOrExecute(t *corev1.Taint) bool {
 	return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
 }
 
-func gi(kb float64) string { return fmt.Sprintf("%.1fGi", kb*1000/(1<<30)) }
+// humanMem formats a decimal-kB amount as Gi, falling back to Mi below 1Gi
+// so a small amount doesn't print as "0.0Gi".
+func humanMem(kb float64) string {
+	if gib := kb * 1000 / (1 << 30); gib >= 1 {
+		return fmt.Sprintf("%.1fGi", gib)
+	}
+	return fmt.Sprintf("%.1fMi", kb*1000/(1<<20))
+}
 
 // rejects lists why n refuses p, in the scheduler's filter order; empty means
 // it fits. Each reason is "kind" or "kind: detail".
 func rejects(p Pod, n Node, r room) []string {
 	out := []string{}
 	cordon := corev1.Taint{Key: cordonTaint, Effect: corev1.TaintEffectNoSchedule}
-	if n.Unschedulable && !schedhelper.TolerationsTolerateTaint(logr.Discard(), p.Tolerations, &cordon, true) {
+	if n.Unschedulable && !schedhelper.TolerationsTolerateTaint(logr.Discard(), p.Tolerations, &cordon, false) {
 		out = append(out, "cordoned")
 	}
 	taints := make([]corev1.Taint, 0, len(n.Taints))
 	for _, t := range n.Taints {
 		taints = append(taints, corev1.Taint{Key: t.Key, Value: t.Value, Effect: corev1.TaintEffect(t.Effect)})
 	}
-	if t, ok := schedhelper.FindMatchingUntoleratedTaint(logr.Discard(), taints, p.Tolerations, noScheduleOrExecute, true); ok {
+	if t, ok := schedhelper.FindMatchingUntoleratedTaint(logr.Discard(), taints, p.Tolerations, noScheduleOrExecute, false); ok {
 		out = append(out, "untolerated taint: "+t.ToString())
 	}
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: n.Name, Labels: n.Labels}}
@@ -72,7 +80,7 @@ func rejects(p Pod, n Node, r room) []string {
 		out = append(out, fmt.Sprintf("insufficient cpu: requires %dm, available %dm", p.CPU, max(r.cpu, 0)))
 	}
 	if p.Memory > 0 && p.Memory > r.memory {
-		out = append(out, fmt.Sprintf("insufficient memory: requires %s, available %s", gi(p.Memory), gi(max(r.memory, 0))))
+		out = append(out, fmt.Sprintf("insufficient memory: requires %s, available %s", humanMem(p.Memory), humanMem(max(r.memory, 0))))
 	}
 	if r.pods < 1 {
 		out = append(out, fmt.Sprintf("too many pods: %d allocatable", n.AllocPods))
@@ -109,6 +117,9 @@ func Hypothetical(cpu, memory, nodeSelector, tolerations string) (Pod, error) {
 		q, err := resource.ParseQuantity(s)
 		if err == nil && q.Sign() < 0 {
 			err = errors.New("negative")
+		}
+		if err == nil && q.CmpInt64(math.MaxInt64/1000) > 0 {
+			err = errors.New("too large")
 		}
 		if err != nil {
 			return q, fmt.Errorf("%s %q: %w", name, s, err)

@@ -87,6 +87,17 @@ func TestFitZeroRequestSkipsResourceCheck(t *testing.T) {
 	}
 }
 
+// Below 1Gi the reason must switch to Mi, not print a useless "0.0Gi".
+func TestFitMemoryReasonUsesMiBelowOneGi(t *testing.T) {
+	n := roomy("n")
+	n.AllocMemory = 500_000                                     // ~476.8Mi
+	got := Fit([]Node{n}, nil, Pod{Memory: 900_000})[0].Reasons // ~858.3Mi requested
+	want := []string{"insufficient memory: requires 858.3Mi, available 476.8Mi"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestFitIsSortedByNode(t *testing.T) {
 	got := Fit([]Node{roomy("b"), roomy("a")}, nil, Pod{})
 	if got[0].Node != "a" || got[1].Node != "b" {
@@ -111,7 +122,7 @@ func TestHypothetical(t *testing.T) {
 		t.Fatalf("empty form: %+v %v", p, err)
 	}
 	bad := [][4]string{{"lots", "", "", ""}, {"", "1Gb", "", ""}, {"-1", "", "", ""}, {"", "", "disk", ""},
-		{"", "", "", ":NoSchedule"}, {"", "", "", "spot:Never"}}
+		{"", "", "", ":NoSchedule"}, {"", "", "", "spot:Never"}, {"1e30", "", "", ""}, {"", "1e30", "", ""}}
 	for _, b := range bad {
 		if _, err := Hypothetical(b[0], b[1], b[2], b[3]); err == nil {
 			t.Errorf("%q accepted", b)
