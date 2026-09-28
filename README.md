@@ -6,14 +6,14 @@
 
 **k8sfoams** is a local, read-only dashboard that answers one question: *where is my cluster's requested CPU and memory actually going, and how much room is left on each node?*
 
-It visualizes **resource requests** — what the scheduler reserves — not live usage. That makes it a tool for spotting over-requesting pods and idle headroom, not a performance monitor. It runs on your laptop, reads *~/.kube/config* (or `$KUBECONFIG`) with the standard Kubernetes client, and needs no in-cluster deployment and no metrics-server.
+It visualizes **resource requests** — what the scheduler reserves — not live usage. That makes it a tool for spotting over-requesting pods and idle headroom, not a performance monitor. It is one static Go binary with the UI embedded, reads *~/.kube/config* (or `$KUBECONFIG`) with the standard Kubernetes client, and needs no metrics-server.
 
 ## How it works
 
-1. Lists nodes (`status.capacity`) and all non-terminated pods. Pods in `Succeeded`/`Failed` are excluded — they still report requests via the API but no longer reserve anything.
+1. Keeps a watch cache of nodes (`status.capacity`) and all non-terminated pods per kubeconfig context, started on the first request for that context — a refresh reads memory and never LISTs the API server. Pods in `Succeeded`/`Failed` are excluded — they still report requests via the API but no longer reserve anything.
 2. Normalizes CPU to millicores and memory to decimal kB with Kubernetes' own quantity parser. A pod's **effective request** is the scheduler's formula (`k8s.io/component-helpers` `PodRequests`): regular containers and native sidecars (init containers with `restartPolicy: Always`) are summed, plain init containers run one at a time so the largest of them is maxed against that sum, and pod overhead and pod-level resources are added.
 3. Nests the result node → pod → container and adds a synthetic `empty` child per node for free capacity, then serves it as JSON.
-4. A React single-page app (no build step — React and Babel come from a CDN) fetches CPU and memory in parallel, merges them, and renders. The view auto-refreshes every 60 seconds by default.
+4. A React single-page app, compiled at build time by `go tool esbuild` and embedded in the binary together with React's production build — nothing loads from a CDN. It fetches CPU and memory in parallel, merges them, and renders. The view auto-refreshes every 60 seconds by default.
 
 ## 2D map
 
@@ -188,10 +188,29 @@ Focusing the input opens a popover with the same token list; it is replaced by t
 | `GET /resources/cpu`, `GET /resources/memory` | treemap JSON; optional `?context=<name>`. CPU in millicores, memory in decimal kB. Each node group also carries `unschedulable`, `taints`, `conditions` and a render-ready `warnings` list — see [Node health](#node-health). Each pod group carries a `findings` list — see [Audit & hygiene](#audit--hygiene) |
 | `GET /contexts` | `[{"context": "...", "active": true}]` |
 
-## Development
+An unknown `context` returns 400; an unreachable cluster or rejected credentials return 503 with the error text.
 
-Requires Go 1.27.
+## Run
+
+Requires Go 1.27. No Node: the JSX is compiled by `go tool esbuild` and React is vendored in `web/static/vendor/`.
 
 ```bash
-go test ./...
+make run                      # http://127.0.0.1:8080, uses ~/.kube/config (or $KUBECONFIG)
+make run ARGS="--port 9090"
+make build                    # bin/k8sfoams
+```
+
+## Flags
+
+| Flag | Default | |
+| --- | --- | --- |
+| `--host`, `--port` | `127.0.0.1`, `8080` | listen address |
+| `--in-cluster` | off | use the pod's service account; offers one context, `in-cluster` |
+| `--allow-unauthenticated` | off | required to listen on a non-loopback host |
+
+## Development
+
+```bash
+make test lint
+make clean
 ```
