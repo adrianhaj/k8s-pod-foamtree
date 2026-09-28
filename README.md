@@ -208,8 +208,8 @@ make build                    # bin/k8sfoams
 
 ## Export
 
-The header's download button saves the 2D map as SVG or PNG and downloads
-both reports.
+The header's download button saves the 2D map as SVG or PNG, the 3D view as
+PNG, and downloads both reports.
 
 `/report.csv` and `/report.json` list every pod with its node, requests,
 limits and findings (CPU in millicores, memory in bytes). Pending pods are

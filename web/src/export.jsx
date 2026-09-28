@@ -216,7 +216,7 @@ function fileName(context, view) {
 
 // A native <details> dropdown: no open state to keep, and Escape/outside
 // clicks are not worth code here.
-function ExportMenu({ view, context, treemap, gridRef }) {
+function ExportMenu({ view, context, treemap, gridRef, sceneRef }) {
   const ref = React.useRef(null);
   const q = context ? `?context=${encodeURIComponent(context)}` : "";
   const close = () => { ref.current.open = false; };
@@ -226,7 +226,11 @@ function ExportMenu({ view, context, treemap, gridRef }) {
     const w = Math.round(width), h = Math.round(height);
     return { svg: treemapSVG({ ...treemap, width: w, height: h }), w, h };
   };
-  const items = view === "3d" ? [] : [
+  const items = view === "3d" ? [
+    // Without WebGL there is no scene to snapshot, only the notice.
+    ["PNG image", run(async () => sceneRef.current &&
+      download(await toBlob(sceneRef.current(SCALE)), `${fileName(context, "3d")}.png`))],
+  ] : [
     ["SVG image", run(() => download(new Blob([svg2d().svg], { type: "image/svg+xml" }), `${fileName(context, "2d")}.svg`))],
     ["PNG image", run(async () => {
       const { svg, w, h } = svg2d();

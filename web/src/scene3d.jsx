@@ -217,7 +217,7 @@ function labelSprite(T, { name, util, hue, sev }, height) {
 
 function Scene3D({
   nodes, match, zoom, groupBy, hueOf, memUnit, fmtMem, onFocus,
-  highlight, highlightActive, onPodSelect, onPodHover,
+  highlight, highlightActive, onPodSelect, onPodHover, snapshotRef,
 }) {
   const hostRef = React.useRef(null);
   const world = React.useRef(null);
@@ -325,9 +325,29 @@ function Scene3D({
     el.addEventListener("pointerdown", onDown);
     el.addEventListener("pointerup", onUp);
 
+    // For the PNG export. Without preserveDrawingBuffer the frame is only
+    // readable in the task that drew it, so draw and copy it here, at `scale`
+    // pixels per CSS pixel, onto the page background (the canvas is transparent).
+    snapshotRef.current = scale => {
+      const ratio = renderer.getPixelRatio();
+      renderer.setPixelRatio(scale);
+      renderer.render(scene, cam);
+      const src = renderer.domElement, out = document.createElement("canvas");
+      out.width = src.width;
+      out.height = src.height;
+      const g = out.getContext("2d");
+      g.fillStyle = token("--bg", "#07080c");
+      g.fillRect(0, 0, out.width, out.height);
+      g.drawImage(src, 0, 0);
+      renderer.setPixelRatio(ratio);
+      w.render();
+      return out;
+    };
+
     world.current = w;
     resize();
     return () => {
+      snapshotRef.current = null;
       ro.disconnect();
       cancelAnimationFrame(frame);
       cancelAnimationFrame(hoverFrame);
