@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: k8sfoams
+---
+# Read-only, and only what the dashboard shows. Pod specs can carry env values,
+# so treat anyone who can exec into this pod as able to read them.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: k8sfoams
+rules:
+  - apiGroups: [""]
+    resources: [nodes, pods]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: k8sfoams
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: k8sfoams
+subjects:
+  - kind: ServiceAccount
+    name: k8sfoams
+    namespace: k8sfoams

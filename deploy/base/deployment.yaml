@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k8sfoams
+  labels: {app: k8sfoams}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: k8sfoams}
+  template:
+    metadata:
+      labels: {app: k8sfoams}
+    spec:
+      serviceAccountName: k8sfoams
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: k8sfoams
+          image: k8sfoams
+          # Replace the example.com values in your own overlay.
+          args:
+            - --in-cluster
+            - --host=0.0.0.0
+            - --auth=oidc
+            - --oidc-issuer=https://issuer.example.com
+            - --oidc-client-id=k8sfoams
+            - --oidc-redirect-url=https://k8sfoams.example.com/auth/callback
+            - --oidc-allowed-groups=k8sfoams-viewers
+          env:
+            # kubectl -n k8sfoams create secret generic k8sfoams-oidc \
+            #   --from-literal=client-secret=... --from-literal=session-key="$(openssl rand -base64 32)"
+            - name: K8SFOAMS_OIDC_CLIENT_SECRET
+              valueFrom: {secretKeyRef: {name: k8sfoams-oidc, key: client-secret}}
+            - name: K8SFOAMS_SESSION_KEY
+              valueFrom: {secretKeyRef: {name: k8sfoams-oidc, key: session-key}}
+          ports:
+            - {name: http, containerPort: 8080}
+          readinessProbe:
+            httpGet: {path: /healthcheck, port: http}
+          livenessProbe:
+            httpGet: {path: /healthcheck, port: http}
+          # The cache holds every node and a slimmed copy of every pod: raise the
+          # memory limit on clusters with tens of thousands of pods.
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}

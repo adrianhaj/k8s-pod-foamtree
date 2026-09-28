@@ -1,0 +1,24 @@
+# Local kind cluster: no Ingress, no auth, reached with `make port-forward`.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+# The base already renamed the image, so match its full name. `make kind-load`
+# tags the local build as :dev; a non-latest tag means IfNotPresent, no pull.
+images:
+  - name: ghcr.io/adrianhaj/k8sfoams
+    newTag: dev
+patches:
+  - patch: |-
+      $patch: delete
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: k8sfoams
+  - target: {kind: Deployment, name: k8sfoams}
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/args
+        value: [--in-cluster, --host=0.0.0.0, --auth=none, --allow-unauthenticated]
+      - op: remove
+        path: /spec/template/spec/containers/0/env

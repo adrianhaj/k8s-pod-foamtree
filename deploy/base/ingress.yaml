@@ -1,0 +1,16 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: k8sfoams
+spec:
+  tls:
+    - hosts: [k8sfoams.example.com]
+      secretName: k8sfoams-tls
+  rules:
+    - host: k8sfoams.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: k8sfoams, port: {name: http}}
