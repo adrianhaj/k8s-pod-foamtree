@@ -185,7 +185,7 @@ Focusing the input opens a popover with the same token list; it is replaced by t
 | --- | --- |
 | `GET /` | the dashboard |
 | `GET /healthcheck` | `{"status": "ok"}` |
-| `GET /resources/cpu`, `GET /resources/memory` | treemap JSON; optional `?context=<name>`. CPU in millicores, memory in decimal kB. Each node group also carries `unschedulable`, `taints`, `conditions` and a render-ready `warnings` list — see [Node health](#node-health). Each pod group carries a `findings` list — see [Audit & hygiene](#audit--hygiene) |
+| `GET /resources/cpu`, `GET /resources/memory` | treemap JSON; optional `?context=<name>`. CPU in millicores, memory in decimal kB. Each node group also carries `unschedulable`, `taints`, `conditions` and a render-ready `warnings` list — see [Node health](#node-health). Each pod group carries a `findings` list — see [Audit & hygiene](#audit--hygiene). Pod groups carry `limit` on that axis (`null` = no ceiling); node groups carry `zone`, `region`, `instanceType` and `pool` (`""` when the label is missing). |
 | `GET /contexts` | `[{"context": "...", "active": true}]` |
 | `GET /api/me` | `{"auth": "none"}`, or `{"auth": "oidc", "email": "...", "name": "..."}` for the signed-in user |
 | `GET /auth/login`, `GET /auth/callback`, `POST /auth/logout` | OIDC sign-in and sign-out (only with `--auth=oidc`) |
@@ -199,6 +199,7 @@ Requires Go 1.27. No Node: the JSX is compiled by `go tool esbuild` and React is
 ```bash
 make run                      # http://127.0.0.1:8080, uses ~/.kube/config (or $KUBECONFIG)
 make run ARGS="--port 9090"
+make run ARGS="--synthetic 400x50"   # 20 000 made-up pods, no cluster needed
 make build                    # bin/k8sfoams
 ```
 
@@ -238,6 +239,7 @@ Images: `make image` builds `ghcr.io/adrianhaj/k8sfoams:<git describe>` locally;
 | `--oidc-allowed-groups` | | comma-separated; at least one allow list is required |
 | `--oidc-groups-claim` | `groups` | ID-token claim with group names |
 | `--oidc-scopes` | `openid,email,profile` | add `groups` for Dex/Keycloak |
+| `--synthetic` | | serve a made-up cluster, e.g. `100x50` (nodes × pods per node), for UI work and scale tests |
 
 Secrets come from the environment only: `K8SFOAMS_OIDC_CLIENT_SECRET`, `K8SFOAMS_SESSION_KEY` (32 bytes, base64; unset means a random key, so sessions end on restart).
 

@@ -33,6 +33,8 @@ type options struct {
 	oidc                 auth.Config
 	emails, groups       string
 	scopes, sessionKey   string
+	syntheticSpec        string
+	synthetic            *syntheticSource
 }
 
 func parseFlags(args []string) (options, error) {
@@ -50,6 +52,7 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.scopes, "oidc-scopes", "openid,email,profile", "comma-separated scopes")
 	fs.StringVar(&o.emails, "oidc-allowed-emails", "", "comma-separated emails or globs like *@example.com")
 	fs.StringVar(&o.groups, "oidc-allowed-groups", "", "comma-separated groups")
+	fs.StringVar(&o.syntheticSpec, "synthetic", "", "serve a made-up cluster instead, e.g. 100x50 (nodes x pods per node)")
 	if err := fs.Parse(args); err != nil {
 		return o, err
 	}
@@ -57,6 +60,13 @@ func parseFlags(args []string) (options, error) {
 	o.oidc.ClientSecret = os.Getenv("K8SFOAMS_OIDC_CLIENT_SECRET")
 	o.sessionKey = os.Getenv("K8SFOAMS_SESSION_KEY")
 	o.oidc.Scopes, o.oidc.AllowedEmails, o.oidc.AllowedGroups = list(o.scopes), list(o.emails), list(o.groups)
+	if o.syntheticSpec != "" {
+		s, err := parseSynthetic(o.syntheticSpec)
+		if err != nil {
+			return o, err
+		}
+		o.synthetic = s
+	}
 
 	switch o.authMode {
 	case "none":
@@ -105,9 +115,13 @@ func run(ctx context.Context, o options) error {
 			return err
 		}
 	}
+	var src source = kube.NewSource(o.inCluster)
+	if o.synthetic != nil {
+		src = o.synthetic
+	}
 	srv := &http.Server{
 		Addr:              net.JoinHostPort(o.host, strconv.Itoa(o.port)),
-		Handler:           newHandler(kube.NewSource(o.inCluster), web.Static, a),
+		Handler:           newHandler(src, web.Static, a),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {
