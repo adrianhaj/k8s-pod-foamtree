@@ -183,3 +183,29 @@ func TestTreemapNodeTopology(t *testing.T) {
 		t.Fatalf("unlabelled node must send empty strings: %v", g[0])
 	}
 }
+
+func TestTreemapExtended(t *testing.T) {
+	gpuNode := minikube
+	gpuNode.Extended = map[string]int64{"nvidia.com/gpu": 8}
+	train := etcdPod()
+	train.Extended = map[string]int64{"nvidia.com/gpu": 2}
+	train.Containers[0].Extended = map[string]int64{"nvidia.com/gpu": 2}
+	for _, axis := range []Axis{CPU, Memory} {
+		n := render(t, []Node{gpuNode}, []Pod{train}, axis)[0]
+		pods := children(n)
+		cs := children(pods[0])
+		if fmt.Sprint(n["extended"], pods[0]["extended"], cs[0]["extended"]) != "map[nvidia.com/gpu:8] map[nvidia.com/gpu:2] map[nvidia.com/gpu:2]" {
+			t.Fatalf("axis %d: node=%v pod=%v container=%v", axis, n["extended"], pods[0]["extended"], cs[0])
+		}
+		if _, ok := cs[1]["extended"]; ok {
+			t.Fatalf("a container without extended requests must omit the field: %v", cs[1])
+		}
+	}
+	bare := render(t, []Node{minikube}, []Pod{etcdPod()}, CPU)[0]
+	if _, ok := bare["extended"]; ok {
+		t.Fatalf("a node without extended resources must omit the field: %v", bare)
+	}
+	if _, ok := children(bare)[0]["extended"]; ok {
+		t.Fatal("a pod without extended requests must omit the field")
+	}
+}

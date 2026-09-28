@@ -252,6 +252,6 @@ func slimNode(obj any) (any, error) {
 	return &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{Name: n.Name, UID: n.UID, ResourceVersion: n.ResourceVersion, Labels: labels},
 		Spec:       corev1.NodeSpec{Unschedulable: n.Spec.Unschedulable, Taints: n.Spec.Taints},
-		Status:     corev1.NodeStatus{Capacity: n.Status.Capacity, Conditions: conds},
+		Status:     corev1.NodeStatus{Capacity: n.Status.Capacity, Allocatable: n.Status.Allocatable, Conditions: conds},
 	}, nil
 }

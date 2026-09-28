@@ -255,3 +255,47 @@ func TestFromNodeTopology(t *testing.T) {
 		t.Fatalf("karpenter pool wins, missing zone stays empty: %+v", n)
 	}
 }
+
+func TestFromPodExtended(t *testing.T) {
+	gpus := func(c corev1.Container, n string) corev1.Container {
+		c.Resources.Requests["nvidia.com/gpu"] = resource.MustParse(n)
+		return c
+	}
+	train := gpus(ctr("train", "1", "1Gi"), "1")
+	train.Resources.Requests[corev1.ResourceEphemeralStorage] = resource.MustParse("1Gi")
+	p := FromPod(pod([]corev1.Container{train, gpus(ctr("eval", "", ""), "2")}, gpus(ctr("warmup", "", ""), "4")))
+	if fmt.Sprint(p.Extended) != "map[ephemeral-storage:1073741824 nvidia.com/gpu:4]" {
+		t.Fatalf("pod: max(sum regular, max init) per resource, cpu/memory left out: %v", p.Extended)
+	}
+	if fmt.Sprint(p.Containers[0].Extended, p.Containers[1].Extended, p.InitContainers[0].Extended) !=
+		"map[ephemeral-storage:1073741824 nvidia.com/gpu:1] map[nvidia.com/gpu:2] map[nvidia.com/gpu:4]" {
+		t.Fatalf("containers: %+v %+v", p.Containers, p.InitContainers)
+	}
+	if plain := FromPod(pod([]corev1.Container{ctr("etcd", "100m", "1G")})); plain.Extended != nil || plain.Containers[0].Extended != nil {
+		t.Fatalf("no extended requests must stay nil: %+v", plain)
+	}
+}
+
+func TestFromNodeExtended(t *testing.T) {
+	raw := node()
+	raw.Status.Capacity["nvidia.com/gpu"] = resource.MustParse("8")
+	raw.Status.Capacity[corev1.ResourceEphemeralStorage] = resource.MustParse("100Gi")
+	raw.Status.Allocatable = corev1.ResourceList{
+		corev1.ResourceCPU:              resource.MustParse("1900m"),
+		corev1.ResourceMemory:           resource.MustParse("900Mi"),
+		"nvidia.com/gpu":                resource.MustParse("8"),
+		corev1.ResourceEphemeralStorage: resource.MustParse("90Gi"),
+		"hugepages-2Mi":                 resource.MustParse("0"),
+		corev1.ResourcePods:             resource.MustParse("110"),
+	}
+	n := FromNode(raw)
+	if got := fmt.Sprint(n.Extended); got != "map[ephemeral-storage:96636764160 nvidia.com/gpu:8]" {
+		t.Fatalf("extended comes from allocatable, without zero hugepages and pod slots: %s", got)
+	}
+	if n.CPU != 2000 || n.Memory != 1_073_741.824 {
+		t.Fatalf("cpu and memory stay on capacity: cpu=%d mem=%v", n.CPU, n.Memory)
+	}
+	if n := FromNode(node()); n.Extended != nil {
+		t.Fatalf("no allocatable must stay nil: %v", n.Extended)
+	}
+}

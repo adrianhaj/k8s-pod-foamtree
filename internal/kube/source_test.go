@@ -182,3 +182,14 @@ func TestSlimNodeKeepsOnlyTopologyLabels(t *testing.T) {
 		t.Fatalf("got %v", got)
 	}
 }
+
+// Extended resources are sized from allocatable, so the cache must keep it.
+func TestSlimNodeKeepsCapacityAndAllocatable(t *testing.T) {
+	gpus := corev1.ResourceList{"nvidia.com/gpu": resource.MustParse("8")}
+	in := &corev1.Node{Status: corev1.NodeStatus{Capacity: gpus, Allocatable: gpus, NodeInfo: corev1.NodeSystemInfo{KernelVersion: "6.1"}}}
+	out, _ := slimNode(in)
+	n := out.(*corev1.Node)
+	if !reflect.DeepEqual(n.Status.Capacity, gpus) || !reflect.DeepEqual(n.Status.Allocatable, gpus) || n.Status.NodeInfo.KernelVersion != "" {
+		t.Fatalf("got %+v", n.Status)
+	}
+}
