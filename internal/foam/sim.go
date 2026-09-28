@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"slices"
 	"strings"
@@ -154,4 +155,100 @@ func Hypothetical(cpu, memory, nodeSelector, tolerations string) (Pod, error) {
 		p.Tolerations = append(p.Tolerations, t)
 	}
 	return p, nil
+}
+
+type Placement struct {
+	Pod    string `json:"pod"` // namespace/name
+	Node   string `json:"node,omitempty"`
+	Reason string `json:"reason,omitempty"`
+}
+
+type DrainResult struct {
+	Moved   []Placement `json:"moved"`
+	Pending []Placement `json:"pending"`
+	// DaemonSet and static pods go down with the node; nothing reschedules them.
+	Ignored []string `json:"ignored"`
+	// No controller: deleted and never recreated (kubectl drain wants --force).
+	Unmanaged []string `json:"unmanaged"`
+}
+
+// Drain replays evicting every pod on the named node onto the others, as
+// `kubectl drain` or a node failure would; false when there is no such node.
+// ponytail: greedy, largest request first, each onto the feasible node with
+// the most free share (the scheduler's default LeastAllocated score). No
+// PodDisruptionBudgets (needs RBAC on policy), no optimal packing: a real
+// rollout can fragment differently.
+func Drain(nodes []Node, pods []Pod, name string) (DrainResult, bool) {
+	if !slices.ContainsFunc(nodes, func(n Node) bool { return n.Name == name }) {
+		return DrainResult{}, false
+	}
+	rooms := free(nodes, pods)
+	targets := slices.DeleteFunc(slices.Clone(nodes), func(n Node) bool { return n.Name == name })
+	slices.SortFunc(targets, func(a, b Node) int { return cmp.Compare(a.Name, b.Name) })
+
+	out := DrainResult{Moved: []Placement{}, Pending: []Placement{}, Ignored: []string{}, Unmanaged: []string{}}
+	var evicted []Pod
+	for _, p := range pods {
+		if p.NodeName != name {
+			continue
+		}
+		switch p.Controller {
+		case "DaemonSet", "Node":
+			out.Ignored = append(out.Ignored, p.Namespace+"/"+p.Name)
+		case "":
+			out.Unmanaged = append(out.Unmanaged, p.Namespace+"/"+p.Name)
+		default:
+			evicted = append(evicted, p)
+		}
+	}
+	slices.Sort(out.Ignored)
+	slices.Sort(out.Unmanaged)
+	slices.SortFunc(evicted, func(a, b Pod) int {
+		return cmp.Or(cmp.Compare(b.CPU, a.CPU), cmp.Compare(b.Memory, a.Memory),
+			cmp.Compare(a.Namespace, b.Namespace), cmp.Compare(a.Name, b.Name))
+	})
+
+	for _, p := range evicted {
+		best, bestScore := -1, 0.0
+		why := map[string]int{}
+		for i, n := range targets {
+			r := rooms[n.Name]
+			if rs := rejects(p, n, r); len(rs) > 0 {
+				for _, reason := range rs {
+					kind, _, _ := strings.Cut(reason, ":")
+					why[kind]++
+				}
+				continue
+			}
+			score := (float64(r.cpu-p.CPU)/float64(n.AllocCPU) + (r.memory-p.Memory)/n.AllocMemory) / 2
+			if best < 0 || score > bestScore {
+				best, bestScore = i, score
+			}
+		}
+		id := p.Namespace + "/" + p.Name
+		if best < 0 {
+			out.Pending = append(out.Pending, Placement{Pod: id, Reason: summary(why, len(targets))})
+			continue
+		}
+		n := targets[best].Name
+		r := rooms[n]
+		rooms[n] = room{r.cpu - p.CPU, r.memory - p.Memory, r.pods - 1}
+		out.Moved = append(out.Moved, Placement{Pod: id, Node: n})
+	}
+	return out, true
+}
+
+// summary reads like the scheduler's FailedScheduling event, most common first.
+func summary(why map[string]int, nodes int) string {
+	kinds := slices.Collect(maps.Keys(why))
+	slices.SortFunc(kinds, func(a, b string) int { return cmp.Or(cmp.Compare(why[b], why[a]), cmp.Compare(a, b)) })
+	parts := make([]string, 0, len(kinds))
+	for _, k := range kinds {
+		parts = append(parts, fmt.Sprintf("%d %s", why[k], k))
+	}
+	out := fmt.Sprintf("0/%d nodes are available", nodes)
+	if len(parts) > 0 {
+		out += ": " + strings.Join(parts, ", ")
+	}
+	return out
 }
