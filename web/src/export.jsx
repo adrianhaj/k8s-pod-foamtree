@@ -207,6 +207,20 @@ function download(blob, name) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
+// PDF through the browser's print dialog ("Save as PDF"): print CSS hides the
+// app and shows only this image, so a live DOM re-flowing to paper size never
+// comes into it. The 2D SVG stays vector in the PDF. Removed on afterprint,
+// since print() does not block in every browser.
+async function printImage(src) {
+  const img = document.createElement("img");
+  img.className = "print-sheet";
+  img.src = src;
+  await img.decode();
+  document.body.append(img);
+  addEventListener("afterprint", () => img.remove(), { once: true });
+  print();
+}
+
 // k8sfoams-<context>-<view>-2026-09-28-1405
 function fileName(context, view) {
   const d = new Date(), p = n => String(n).padStart(2, "0");
@@ -230,12 +244,14 @@ function ExportMenu({ view, context, treemap, gridRef, sceneRef }) {
     // Without WebGL there is no scene to snapshot, only the notice.
     ["PNG image", run(async () => sceneRef.current &&
       download(await toBlob(sceneRef.current(SCALE)), `${fileName(context, "3d")}.png`))],
+    ["PDF (print)", run(() => sceneRef.current && printImage(sceneRef.current(SCALE).toDataURL("image/png")))],
   ] : [
     ["SVG image", run(() => download(new Blob([svg2d().svg], { type: "image/svg+xml" }), `${fileName(context, "2d")}.svg`))],
     ["PNG image", run(async () => {
       const { svg, w, h } = svg2d();
       download(await toBlob(await svgToPNG(svg, w, h)), `${fileName(context, "2d")}.png`);
     })],
+    ["PDF (print)", run(() => printImage(svgURL(svg2d().svg)))],
   ];
   return (
     <details className="export-menu" ref={ref}>

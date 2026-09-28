@@ -1334,3 +1334,12 @@ input { font: inherit; color: inherit; background: none; border: none; outline: 
 .scene-gl canvas { display: block; cursor: grab; }
 .scene-gl canvas:active { cursor: grabbing; }
 .scene-nogl { display: grid; place-items: center; padding: 24px; color: var(--text-dim, #9aa3b8); text-align: center; }
+
+/* Print: only the export's image, when there is one (see printImage). */
+.print-sheet { display: none; }
+@media print {
+  @page { size: landscape; margin: 10mm; }
+  html:has(.print-sheet), body:has(.print-sheet) { background: none; }
+  body:has(.print-sheet) #root { display: none; }
+  .print-sheet { display: block; width: 100%; height: 100%; object-fit: contain; }
+}
