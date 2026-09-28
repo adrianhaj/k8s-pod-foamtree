@@ -1,2 +1,6 @@
 .vscode/
 local
+bin/
+build/
+web/static/app.js
+kind.kubeconfig
