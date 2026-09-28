@@ -61,6 +61,11 @@ func New(ctx context.Context, cfg Config) (*Auth, error) {
 	if len(cfg.AllowedEmails) == 0 && len(cfg.AllowedGroups) == 0 {
 		return nil, errors.New("oidc: set allowed emails or groups")
 	}
+	for _, p := range cfg.AllowedEmails {
+		if _, err := path.Match(p, ""); err != nil {
+			return nil, fmt.Errorf("allowed email pattern %q: %w", p, err)
+		}
+	}
 	block, err := aes.NewCipher(cfg.SessionKey)
 	if err != nil {
 		return nil, fmt.Errorf("session key: %w", err)
@@ -149,9 +154,14 @@ func (a *Auth) callback(w http.ResponseWriter, r *http.Request) {
 	}
 	raw, _ := tok.Extra("id_token").(string)
 	idt, err := a.verifier.Verify(r.Context(), raw)
-	if err != nil || subtle.ConstantTimeCompare([]byte(idt.Nonce), []byte(st.Nonce)) != 1 {
+	if err != nil {
 		http.Error(w, "invalid id token", http.StatusUnauthorized)
 		slog.Warn("oidc verify", "err", err)
+		return
+	}
+	if subtle.ConstantTimeCompare([]byte(idt.Nonce), []byte(st.Nonce)) != 1 {
+		http.Error(w, "invalid id token", http.StatusUnauthorized)
+		slog.Warn("oidc nonce mismatch")
 		return
 	}
 	u, groups, err := a.claims(idt)
@@ -168,9 +178,14 @@ func (a *Auth) callback(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
+// A redirect to "/" would just bounce through /auth/login again and, behind
+// an IdP with SSO, get a new session issued silently.
+const loggedOutPage = `<!doctype html><html><body><p>Signed out.</p><p><a href="/auth/login">Sign in again</a></p></body></html>`
+
 func (a *Auth) logout(w http.ResponseWriter, r *http.Request) {
 	a.setCookie(w, sessionCookie, "/", "", -1)
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write([]byte(loggedOutPage))
 }
 
 func (a *Auth) claims(idt *oidc.IDToken) (User, []string, error) {

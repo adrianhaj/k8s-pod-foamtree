@@ -7,9 +7,11 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path"
 	"strings"
 	"testing"
 	"time"
@@ -209,7 +211,14 @@ func TestForgedSessionsAreRejected(t *testing.T) {
 func TestLogoutDeletesSession(t *testing.T) {
 	h := handler(newAuth(t, newIdP(t), []string{"*@example.com"}, nil))
 	w := do(h, "POST", "/auth/logout", nil)
-	if c := cookie(w, sessionCookie); c == nil || c.MaxAge >= 0 {
+	if w.Code != http.StatusOK || w.Header().Get("Location") != "" {
+		t.Fatalf("logout: %d location=%q", w.Code, w.Header().Get("Location"))
+	}
+	if !strings.Contains(w.Body.String(), `href="/auth/login"`) {
+		t.Fatalf("logout page must link to /auth/login: %s", w.Body)
+	}
+	c := cookie(w, sessionCookie)
+	if c == nil || c.Path != "/" || c.MaxAge >= 0 {
 		t.Fatalf("session cookie not deleted: %+v", c)
 	}
 	if w := do(h, "GET", "/auth/logout", nil); w.Code == http.StatusSeeOther {
@@ -221,5 +230,35 @@ func TestNewRefusesOpenAllowlist(t *testing.T) {
 	_, err := New(context.Background(), Config{Issuer: "https://idp", ClientID: "c", RedirectURL: "https://d/cb", SessionKey: make([]byte, 32)})
 	if err == nil || !strings.Contains(err.Error(), "allowed") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestNewRejectsBadAllowlistGlob(t *testing.T) {
+	_, err := New(context.Background(), Config{
+		Issuer: "https://idp", ClientID: "c", RedirectURL: "https://d/cb",
+		AllowedEmails: []string{"[bad"}, SessionKey: make([]byte, 32),
+	})
+	if err == nil || !errors.Is(err, path.ErrBadPattern) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestSecureCookieOnHTTPSRedirect(t *testing.T) {
+	idp := newIdP(t)
+	a, err := New(context.Background(), Config{
+		Issuer: idp.URL, ClientID: "dash", RedirectURL: "https://dash.test/auth/callback",
+		Scopes: []string{"openid", "email"}, AllowedEmails: []string{"*@example.com"}, SessionKey: make([]byte, 32),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := handler(a)
+	start := do(h, "GET", "/auth/login", nil)
+	if c := cookie(start, loginCookie); c == nil || !c.Secure {
+		t.Fatalf("login cookie not secure: %+v", c)
+	}
+	w := login(t, h, idp, map[string]any{"email": "ada@example.com", "email_verified": true})
+	if c := cookie(w, sessionCookie); c == nil || !c.Secure {
+		t.Fatalf("session cookie not secure: %+v", c)
 	}
 }
