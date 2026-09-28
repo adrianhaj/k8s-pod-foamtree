@@ -1,10 +1,16 @@
-ARGS ?=
+IMAGE     ?= ghcr.io/adrianhaj/k8sfoams
+TAG       ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+PLATFORMS ?= linux/amd64,linux/arm64
+ARGS      ?=
+# kind keeps its credentials here, never in ~/.kube/config.
+KIND_KUBECONFIG ?= $(CURDIR)/kind.kubeconfig
+KIND_KUBECTL    := kubectl --kubeconfig $(KIND_KUBECONFIG) --context kind-k8sfoams
 
 # Load order matters: each file publishes its API on window.* for the next.
 JSX := $(addprefix web/src/,nodestatus.jsx podaudit.jsx query.jsx workload.jsx tweaks-panel.jsx treemap.jsx cube3d.jsx app.jsx)
 APP_JS := web/static/app.js
 
-.PHONY: web build run test lint clean
+.PHONY: web build run test lint image image-push kind-up kind-down kind-load deploy-dev port-forward clean
 
 web: $(APP_JS)
 
@@ -26,6 +32,30 @@ test: web
 lint:
 	test -z "$$(gofmt -l .)"
 	go vet ./...
+
+image:
+	docker build -t $(IMAGE):$(TAG) .
+
+image-push:
+	docker buildx build --platform $(PLATFORMS) -t $(IMAGE):$(TAG) --push .
+
+kind-up:
+	kind get clusters | grep -qx k8sfoams || kind create cluster --name k8sfoams --kubeconfig $(KIND_KUBECONFIG)
+	kind export kubeconfig --name k8sfoams --kubeconfig $(KIND_KUBECONFIG)
+
+kind-down:
+	kind delete cluster --name k8sfoams --kubeconfig $(KIND_KUBECONFIG)
+
+kind-load: image
+	docker tag $(IMAGE):$(TAG) $(IMAGE):dev
+	kind load docker-image $(IMAGE):dev --name k8sfoams
+
+deploy-dev: kind-load
+	$(KIND_KUBECTL) apply -k deploy/overlays/dev
+	$(KIND_KUBECTL) -n k8sfoams rollout restart deploy/k8sfoams
+
+port-forward:
+	$(KIND_KUBECTL) -n k8sfoams port-forward svc/k8sfoams 8080:80
 
 clean:
 	rm -rf bin build $(APP_JS)
