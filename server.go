@@ -41,17 +41,20 @@ func newHandler(src source, static fs.FS, a *auth.Auth) http.Handler {
 			http.Error(w, "Resource type: "+kind+" is not supported. Supported types are: [cpu, memory]", http.StatusBadRequest)
 			return
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), snapshotTimeout)
-		defer cancel()
-		nodes, pods, err := src.Snapshot(ctx, r.URL.Query().Get("context"))
-		switch {
-		case errors.Is(err, kube.ErrUnknownContext):
-			http.Error(w, err.Error(), http.StatusBadRequest)
-		case err != nil:
-			slog.Warn("snapshot", "err", err)
-			http.Error(w, err.Error(), http.StatusServiceUnavailable)
-		default:
+		if nodes, pods, ok := snapshot(w, r, src); ok {
 			writeJSON(w, foam.Treemap(nodes, pods, axis))
+		}
+	})
+	// Read-only dry run, so a GET: nothing to forge, and the link can be shared.
+	app.HandleFunc("GET /api/fit", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		p, err := foam.Hypothetical(q.Get("cpu"), q.Get("memory"), q.Get("nodeSelector"), q.Get("tolerations"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if nodes, pods, ok := snapshot(w, r, src); ok {
+			writeJSON(w, foam.Fit(nodes, pods, p))
 		}
 	})
 	app.HandleFunc("GET /api/me", func(w http.ResponseWriter, r *http.Request) {
@@ -74,6 +77,24 @@ func newHandler(src source, static fs.FS, a *auth.Auth) http.Handler {
 		root.Handle("/", a.Require(app))
 	}
 	return secure(root)
+}
+
+// snapshot reads the ?context= cluster, writing the error response itself
+// when that fails.
+func snapshot(w http.ResponseWriter, r *http.Request, src source) ([]foam.Node, []foam.Pod, bool) {
+	ctx, cancel := context.WithTimeout(r.Context(), snapshotTimeout)
+	defer cancel()
+	nodes, pods, err := src.Snapshot(ctx, r.URL.Query().Get("context"))
+	switch {
+	case errors.Is(err, kube.ErrUnknownContext):
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	case err != nil:
+		slog.Warn("snapshot", "err", err)
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+	default:
+		return nodes, pods, true
+	}
+	return nil, nil, false
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
