@@ -84,6 +84,35 @@ func TestResourcesPassesContextAndMapsErrors(t *testing.T) {
 	}
 }
 
+func TestReportRoutes(t *testing.T) {
+	src := &fakeSource{
+		nodes: []foam.Node{{Name: "minikube", CPU: 2000, Memory: 1_000_000, Zone: "z1"}},
+		pods: []foam.Pod{
+			{Name: "etcd", Namespace: "kube-system", NodeName: "minikube", CPU: 150, Memory: 100_000},
+			{Name: "pending", Namespace: "dev", CPU: 100},
+		},
+	}
+	h := newHandler(src, static, nil)
+	w := get(h, "/report.csv?context=kind")
+	want := "node,zone,pool,instance_type,node_cpu_m,node_memory_bytes,node_warnings,namespace,pod,qos," +
+		"cpu_request_m,cpu_limit_m,memory_request_bytes,memory_limit_bytes,findings\n" +
+		"minikube,z1,,,2000,1000000000,,kube-system,etcd,,150,,100000000,,\n" +
+		",,,,0,0,,dev,pending,,100,,0,,\n"
+	if w.Code != 200 || w.Body.String() != want || src.asked != "kind" ||
+		w.Header().Get("Content-Type") != "text/csv; charset=utf-8" ||
+		w.Header().Get("Content-Disposition") != "attachment" {
+		t.Fatalf("csv: %d %v\n%s", w.Code, w.Header(), w.Body)
+	}
+	w = get(h, "/report.json")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"pod":"etcd","qos":"","cpu":150,"cpuLimit":null,"memoryBytes":100000000`) {
+		t.Fatalf("json: %d %s", w.Code, w.Body)
+	}
+	src.err = fmt.Errorf("%w %q", kube.ErrUnknownContext, "prod")
+	if w := get(h, "/report.csv?context=prod"); w.Code != 400 {
+		t.Fatalf("unknown context: %d", w.Code)
+	}
+}
+
 func TestFlags(t *testing.T) {
 	cases := []struct {
 		args []string

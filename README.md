@@ -206,6 +206,16 @@ make run ARGS="--synthetic 400x50"   # 20 000 made-up pods, no cluster needed
 make build                    # bin/k8sfoams
 ```
 
+## Export
+
+`/report.csv` and `/report.json` list every pod with its node, requests,
+limits and findings (CPU in millicores, memory in bytes). Pending pods are
+listed last, with the node columns empty:
+
+```bash
+curl -o pods.csv 'http://127.0.0.1:8080/report.csv?context=kind-k8sfoams'
+```
+
 ## Run in a cluster
 
 ```bash
