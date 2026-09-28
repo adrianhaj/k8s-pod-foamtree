@@ -603,4 +603,4 @@ function SceneTooltip({ tip, memUnit, fmtMem }) {
   );
 }
 
-window.k8sScene3D = { Scene3D, layout };
+window.k8sScene3D = { Scene3D, layout, hsl, token };
